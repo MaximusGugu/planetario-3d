@@ -1396,10 +1396,6 @@ export default function SolarSystemRenderer(externalProps) {
                     (targetDistance.current - currentDistance.current) *
                     (p.zoomSmoothness ?? 0.05)
 
-                const hudZoomThreshold =
-                    targetDistance.current *
-                    (1 - (p.hudZoomTolerance ?? 0.15))
-
                 const selectedName = selectedMoonRef.current
                 const selectedUnit = selectedName
                     ? getSceneUnit(selectedName)
@@ -1408,35 +1404,29 @@ export default function SolarSystemRenderer(externalProps) {
                     ? getSceneUnitTarget(selectedName)
                     : null
                 const selectedRadius = getObjectWorldRadius(selectedUnit)
-                const hudHideViewportHeight = p.hudHideViewportHeight ?? 0.15
-                const hideDistance = selectedRadius
-                    ? getDistanceForViewportHeight({
-                          camera: cam,
-                          radius: selectedRadius,
-                          viewportFraction: hudHideViewportHeight,
-                      })
-                    : null
+                const selectedViewportHeight =
+                    selectedObj && selectedRadius
+                        ? getProjectedViewportHeight({
+                              camera: cam,
+                              worldPos: selectedObj.getWorldPosition(
+                                  new THREE.Vector3()
+                              ),
+                              radius: selectedRadius,
+                          })
+                        : 0
+                const hudHideViewportHeight = p.hudHideViewportHeight ?? 0.3
 
-                // Debug: log hide logic
-                if (focusedMoon && selectedName === focusedMoon && hideDistance) {
+                if (focusedMoon && selectedName === focusedMoon) {
                     const shouldHide =
-                        currentDistance.current > hideDistance &&
-                        targetDistance.current > hideDistance
+                        selectedViewportHeight > 0 &&
+                        selectedViewportHeight <= hudHideViewportHeight
+
                     if (shouldHide) {
                         setHudFeatureFocus(null)
                         hudFeatureFocusRef.current = null
                         setFocusedMoon(null)
+                        focusedMoonRef.current = null
                     }
-                }
-
-                if (
-                    selectedMoonRef.current &&
-                    !focusedMoon &&
-                    !cleanNavigationMode &&
-                    !freeNavigationRef.current &&
-                    currentDistance.current < hudZoomThreshold
-                ) {
-                    setFocusedMoon(selectedMoonRef.current)
                 }
 
                 ctrl.minDistance = p.minZoom || 0.05
@@ -1879,7 +1869,7 @@ export default function SolarSystemRenderer(externalProps) {
             style={containerMainStyle}
             onPointerDown={() => {
                 if (
-                    (cleanNavigationMode || freeFlightMode || ActiveOverlay) &&
+                    (cleanNavigationMode || freeFlightMode) &&
                     hoveredObjectName
                 ) {
                     focusOn(hoveredObjectName)
