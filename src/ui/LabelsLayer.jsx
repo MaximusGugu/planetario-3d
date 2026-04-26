@@ -34,6 +34,7 @@ export default function LabelsLayer({
     onFocus,
     hudOpen,
     hoveredObjectName,
+    labelsOnlyOnHover = false,
 }) {
     return labels.map((label) => {
         const isFocusedTarget = focusedMoon && label.name === selectedName
@@ -51,6 +52,7 @@ export default function LabelsLayer({
             (!autoHideUI || hudOpen)
         const shouldShow =
             shouldShowBase &&
+            (!labelsOnlyOnHover || hoveredObjectName === label.name) &&
             (!hudOpen || hoveredObjectName === label.name)
 
         return (

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>HUD</title>
+
+<style>
+body {
+    margin: 0;
+    background: #050505;
+}
+
+.hud {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    color: white;
+    overflow: hidden;
+}
+
+/* Pontinhos: aparecem mais nas bordas e somem no centro */
+.grid {
+    position: absolute;
+    inset: 0;
+    opacity: 0.45;
+    background-image: radial-gradient(rgba(255,255,255,0.55) 1px, transparent 1px);
+    background-size: 42px 42px;
+
+    mask-image: radial-gradient(
+        ellipse at center,
+        transparent 0%,
+        transparent 38%,
+        rgba(0,0,0,0.25) 55%,
+        black 100%
+    );
+    -webkit-mask-image: radial-gradient(
+        ellipse at center,
+        transparent 0%,
+        transparent 38%,
+        rgba(0,0,0,0.25) 55%,
+        black 100%
+    );
+}
+
+.line {
+    position: absolute;
+    background: rgba(255,255,255,0.92);
+    box-shadow:
+        0 0 6px rgba(255,255,255,0.65),
+        0 0 16px rgba(255,255,255,0.22);
+}
+
+/* Moldura principal */
+.frame {
+    position: absolute;
+    inset: 10px 14px;
+}
+
+/* Topo com desnível central */
+.top-left {
+    top: 0;
+    left: 0;
+    width: calc(50% - 155px);
+    height: 1px;
+}
+
+.top-step-left {
+    top: 0;
+    left: calc(50% - 155px);
+    width: 18px;
+    height: 1px;
+    transform: rotate(-35deg);
+    transform-origin: right center;
+}
+
+.top-center {
+    top: -10px;
+    left: calc(50% - 138px);
+    width: 276px;
+    height: 1px;
+}
+
+.top-step-right {
+    top: 0;
+    right: calc(50% - 155px);
+    width: 18px;
+    height: 1px;
+    transform: rotate(35deg);
+    transform-origin: left center;
+}
+
+.top-right {
+    top: 0;
+    right: 0;
+    width: calc(50% - 155px);
+    height: 1px;
+}
+
+/* Laterais fechadas */
+.left-bar {
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+}
+
+.right-bar {
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+}
+
+/* Base com desnível central */
+.bottom-left {
+    bottom: 0;
+    left: 0;
+    width: calc(50% - 155px);
+    height: 1px;
+}
+
+.bottom-step-left {
+    bottom: 0;
+    left: calc(50% - 155px);
+    width: 18px;
+    height: 1px;
+    transform: rotate(35deg);
+    transform-origin: right center;
+}
+
+.bottom-center {
+    bottom: -10px;
+    left: calc(50% - 138px);
+    width: 276px;
+    height: 1px;
+}
+
+.bottom-step-right {
+    bottom: 0;
+    right: calc(50% - 155px);
+    width: 18px;
+    height: 1px;
+    transform: rotate(-35deg);
+    transform-origin: left center;
+}
+
+.bottom-right {
+    bottom: 0;
+    right: 0;
+    width: calc(50% - 155px);
+    height: 1px;
+}
+
+/* Barrinhas centrais */
+.center-detail-top,
+.center-detail-bottom {
+    left: 50%;
+    width: 64px;
+    height: 4px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+}
+
+.center-detail-top {
+    top: -5px;
+}
+
+.center-detail-bottom {
+    bottom: -12px;
+}
+
+/* Blocos pequenos nas quinas */
+.corner-block {
+    width: 64px;
+    height: 6px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.8);
+}
+
+.corner-top-left {
+    top: 0;
+    left: 0;
+}
+
+.corner-top-right {
+    top: 0;
+    right: 0;
+}
+
+.corner-bottom-left {
+    bottom: 0;
+    left: 0;
+}
+
+.corner-bottom-right {
+    bottom: 0;
+    right: 0;
+}
+
+/* Medição lateral */
+.ticks {
+    position: absolute;
+    right: 3vw;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 34px;
+    height: 58vh;
+    opacity: 0.52;
+    background:
+        repeating-linear-gradient(
+            to bottom,
+            transparent 0 9px,
+            rgba(255,255,255,0.45) 10px 11px
+        );
+    filter: drop-shadow(0 0 6px rgba(255,255,255,0.45));
+}
+</style>
+</head>
+
+<body>
+
+<div class="hud">
+    <div class="grid"></div>
+
+    <div class="frame">
+        <div class="line top-left"></div>
+        <div class="line top-step-left"></div>
+        <div class="line top-center"></div>
+        <div class="line top-step-right"></div>
+        <div class="line top-right"></div>
+
+        <div class="line left-bar"></div>
+        <div class="line right-bar"></div>
+
+        <div class="line bottom-left"></div>
+        <div class="line bottom-step-left"></div>
+        <div class="line bottom-center"></div>
+        <div class="line bottom-step-right"></div>
+        <div class="line bottom-right"></div>
+
+        <div class="line center-detail-top"></div>
+        <div class="line center-detail-bottom"></div>
+
+        <div class="line corner-block corner-top-left"></div>
+        <div class="line corner-block corner-top-right"></div>
+        <div class="line corner-block corner-bottom-left"></div>
+        <div class="line corner-block corner-bottom-right"></div>
+    </div>
+
+    <div class="ticks"></div>
+</div>
+
+</body>
+</html>

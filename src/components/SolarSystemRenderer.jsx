@@ -22,6 +22,7 @@ import {
     getSceneUnit as resolveSceneUnit,
     getSceneUnitTarget as resolveSceneUnitTarget,
     registerSceneUnit as addSceneUnit,
+    restoreSceneUnitState as restoreSavedSceneUnitState,
     restoreSceneUnitVisibility as showAllSceneUnits,
     saveSceneUnitState as snapshotSceneUnitState,
 } from "../core/sceneUnits.js"
@@ -38,7 +39,10 @@ import { createSphere } from "../systems/planets.js"
 import { createRingPlane } from "../systems/orbits.js"
 import { updateMoonSystems } from "../systems/moons.js"
 import { createSunLighting } from "../systems/lights.js"
-import { createAsteroidBelt } from "../systems/asteroids.js"
+import {
+    ASTEROID_LAYER,
+    createAsteroidBelt,
+} from "../systems/asteroids.js"
 import {
     getDisplayName as resolveDisplayName,
 } from "../ui/labels.js"
@@ -93,6 +97,22 @@ const getYRotationToFaceCamera = ({ baseDirection, object, camera }) => {
     return baseAngle - cameraAngle
 }
 
+const DEFAULT_HUD_FOCUS_TARGETS = {
+    "jupiter-great-red-spot": {
+        bodyName: "Jupiter",
+        viewportHeightKey: "greatRedSpotViewportHeight",
+        surfaceOffsetKey: "greatRedSpotSurfaceOffset",
+        rotationYKey: "greatRedSpotRotationY",
+        turnSpeedKey: "greatRedSpotTurnSpeed",
+    },
+}
+
+const getAngularRadius = ({ radius, distance }) => {
+    if (!radius || !distance || distance <= 0) return 0
+
+    return Math.asin(Math.min(1, radius / distance))
+}
+
 export default function SolarSystemRenderer(externalProps) {
     const props = useMemo(
         () => ({ ...rendererConfig, ...(externalProps || {}) }),
@@ -122,6 +142,8 @@ export default function SolarSystemRenderer(externalProps) {
     const uranusRingsGroup = useRef(new THREE.Group())
     const neptuneRingsGroup = useRef(new THREE.Group())
     const sunPosLerp = useRef(new THREE.Vector3())
+    const focusLightBlendRef = useRef(0)
+    const focusLayerObjectRef = useRef(null)
     const sunFlareSpriteRef = useRef(null)
     const jupiterInteriorRadiusRef = useRef(
         props.jupiterRadius ?? DEFAULT_SYSTEM.Jupiter.radius
@@ -192,6 +214,20 @@ export default function SolarSystemRenderer(externalProps) {
         setSelectedName(name)
     }
 
+    const setFocusLayerObject = (object) => {
+        if (focusLayerObjectRef.current === object) return
+
+        if (focusLayerObjectRef.current) {
+            focusLayerObjectRef.current.userData.focused = false
+        }
+
+        focusLayerObjectRef.current = object || null
+
+        if (focusLayerObjectRef.current) {
+            focusLayerObjectRef.current.userData.focused = true
+        }
+    }
+
     const pushCurrentViewToHistory = () => {
         if (suppressHistoryRef.current) return
         viewHistoryRef.current.push({ ...currentViewRef.current })
@@ -254,6 +290,15 @@ export default function SolarSystemRenderer(externalProps) {
         showAllSceneUnits(sceneUnitsRef.current)
     }
 
+    const restoreSceneUnitState = () => {
+        restoreSavedSceneUnitState(
+            sceneUnitsRef.current,
+            sceneUnitSavedStateRef.current
+        )
+        sceneUnitSavedStateRef.current = {}
+        originalScalesRef.current = {}
+    }
+
     useEffect(() => {
         propsRef.current = props
         jupiterGreatRedSpotDirectionRef.current = getSphereTextureDirection({
@@ -314,30 +359,171 @@ export default function SolarSystemRenderer(externalProps) {
         })
     }
 
-    const handleHudFeatureFocus = (feature) => {
-        setHudFeatureFocus(feature)
-        hudFeatureFocusRef.current = feature
+    const getLandingTargetName = (name) => {
+        const marker = propsRef.current.customMarkers?.find(
+            (m) => m.name === name
+        )
 
-        if (feature === "jupiter-great-red-spot") {
-            if (selectedMoonRef.current !== "Jupiter") {
-                focusOn("Jupiter")
+        return marker ? marker.parent || "Jupiter" : name
+    }
+
+    const getViewportDistance = (name, viewportFraction) => {
+        const unit = getSceneUnit(name)
+        const radius = getObjectWorldRadius(unit)
+
+        return (
+            getDistanceForViewportHeight({
+                camera: cameraRef.current,
+                radius,
+                viewportFraction,
+            }) ?? getDefaultFocusDistance(name)
+        )
+    }
+
+    const getOrbitDistance = (name) =>
+        getViewportDistance(
+            getLandingTargetName(name),
+            propsRef.current.orbitViewportHeight ?? 0.6
+        )
+
+    const getLandingDistance = (name) =>
+        getViewportDistance(
+            getLandingTargetName(name),
+            propsRef.current.landingViewportHeight ??
+                propsRef.current.planetViewportHeight ??
+                0.75
+        )
+
+    const getHudFocusTargetConfig = (feature) => {
+        if (!feature) return null
+
+        const featureId =
+            typeof feature === "string" ? feature : feature.id || feature.name
+        if (!featureId) return null
+
+        return {
+            id: featureId,
+            ...(DEFAULT_HUD_FOCUS_TARGETS[featureId] || {}),
+            ...(propsRef.current.hudFocusTargets?.[featureId] || {}),
+            ...(typeof feature === "object" ? feature : {}),
+        }
+    }
+
+    const getHudFocusWorldPosition = (featureConfig) => {
+        if (!featureConfig?.bodyName) return null
+
+        const bodyUnit = getSceneUnit(featureConfig.bodyName)
+        const body = bodyUnit?.body
+        if (!body) return null
+
+        if (featureConfig.id === "jupiter-great-red-spot") {
+            const jupiterRadius =
+                getObjectWorldRadius(getSceneUnit("Jupiter")) ??
+                DEFAULT_SYSTEM.Jupiter.radius
+            const spotLocal = jupiterGreatRedSpotDirectionRef.current
+                .clone()
+                .multiplyScalar(
+                    jupiterRadius *
+                        (propsRef.current.greatRedSpotSurfaceOffset ?? 0.98)
+                )
+
+            return jupiterGroup.current.localToWorld(spotLocal)
+        }
+
+        const localDirection = featureConfig.localDirection
+        if (Array.isArray(localDirection) && localDirection.length >= 3) {
+            const radius =
+                getObjectWorldRadius(bodyUnit) ??
+                body.userData?.baseRadius ??
+                1
+            const surfaceOffset =
+                featureConfig.surfaceOffset ??
+                (featureConfig.surfaceOffsetKey
+                    ? propsRef.current[featureConfig.surfaceOffsetKey]
+                    : null) ??
+                1
+            const local = new THREE.Vector3(
+                localDirection[0],
+                localDirection[1],
+                localDirection[2]
+            )
+                .normalize()
+                .multiplyScalar(radius * surfaceOffset)
+
+            return body.localToWorld(local)
+        }
+
+        return body.getWorldPosition(new THREE.Vector3())
+    }
+
+    const getHudFocusViewportHeight = (featureConfig) => {
+        if (!featureConfig) return null
+
+        if (featureConfig.viewportHeight) return featureConfig.viewportHeight
+        if (featureConfig.viewportHeightKey) {
+            return propsRef.current[featureConfig.viewportHeightKey]
+        }
+
+        return propsRef.current.featureViewportHeight
+    }
+
+    const returnToOrbit = (name) => {
+        const targetName = getLandingTargetName(name || selectedMoonRef.current)
+        if (!targetName) return
+
+        freeNavigationRef.current = false
+        setFreeFlightMode(false)
+        setSelectedTarget(targetName)
+        focusedMoonRef.current = null
+        setFocusedMoon(null)
+        setHudFeatureFocus(null)
+        hudFeatureFocusRef.current = null
+        setIsInsideJupiter(false)
+        isInsideRef.current = false
+        currentViewRef.current = { mode: "locked", target: targetName }
+
+        const orbitDistance = getOrbitDistance(targetName)
+        targetDistance.current = orbitDistance
+        currentDistance.current = Math.max(
+            currentDistance.current,
+            orbitDistance
+        )
+
+        setCfg((prev) => ({ ...prev, hideUI: false }))
+    }
+
+    const handleHudFeatureFocus = (feature) => {
+        const featureConfig = getHudFocusTargetConfig(feature)
+        const nextFeature = featureConfig?.id || null
+
+        setHudFeatureFocus(nextFeature)
+        hudFeatureFocusRef.current = nextFeature
+
+        if (featureConfig?.bodyName) {
+            if (selectedMoonRef.current !== featureConfig.bodyName) {
+                focusOn(featureConfig.bodyName)
             }
 
-            const jupiterUnit = getSceneUnit("Jupiter")
-            const jupiterRadius = getObjectWorldRadius(jupiterUnit)
+            const bodyUnit = getSceneUnit(featureConfig.bodyName)
+            const bodyRadius = getObjectWorldRadius(bodyUnit)
+            const viewportFraction =
+                getHudFocusViewportHeight(featureConfig) ??
+                props.landingViewportHeight ??
+                props.planetViewportHeight ??
+                0.75
             const featureDistance = getDistanceForViewportHeight({
                 camera: cameraRef.current,
-                radius: jupiterRadius,
-                viewportFraction: props.greatRedSpotViewportHeight ?? 1.08,
+                radius: bodyRadius,
+                viewportFraction,
             })
 
             targetDistance.current =
-                featureDistance ?? getDefaultFocusDistance("Jupiter")
+                featureDistance ?? getLandingDistance(featureConfig.bodyName)
             return
         }
 
-        if (selectedMoonRef.current === "Jupiter") {
-            targetDistance.current = getDefaultFocusDistance("Jupiter")
+        if (selectedMoonRef.current) {
+            targetDistance.current = getLandingDistance(selectedMoonRef.current)
         }
     }
 
@@ -398,6 +584,43 @@ export default function SolarSystemRenderer(externalProps) {
         isInsideRef.current = false
     }
 
+    const returnToActiveSceneOverview = () => {
+        const sceneName = activeSceneRef.current
+        const scenePreset = sceneName
+            ? getSceneConfig(propsRef.current, sceneName)
+            : null
+
+        if (!scenePreset) return false
+
+        setSelectedTarget(null)
+        focusedMoonRef.current = null
+        setFocusedMoon(null)
+        setHudFeatureFocus(null)
+        hudFeatureFocusRef.current = null
+        setIsInsideJupiter(false)
+        isInsideRef.current = false
+        freeNavigationRef.current = false
+        setFreeFlightMode(false)
+        hasUserInteractedRef.current = false
+        currentViewRef.current = {
+            mode: "scene",
+            target: sceneName,
+        }
+
+        if (scenePreset.camera) {
+            targetDistance.current = scenePreset.camera.distance
+            currentDistance.current = scenePreset.camera.distance
+            cameraTarget.current.set(
+                scenePreset.camera.target[0],
+                scenePreset.camera.target[1],
+                scenePreset.camera.target[2]
+            )
+        }
+
+        setCfg((prev) => ({ ...prev, hideUI: false }))
+        return true
+    }
+
     const startScene = (sceneName) => {
         const scenePreset = getSceneConfig(propsRef.current, sceneName)
         if (!scenePreset) return
@@ -438,11 +661,25 @@ export default function SolarSystemRenderer(externalProps) {
     }
 
     const stopScene = () => {
+        const previousView = viewHistoryRef.current.pop()
+
+        restoreSceneUnitState()
         activeSceneRef.current = null
         setActiveScene(null)
         sceneOverrideRef.current = {}
 
         restoreSceneUnitVisibility()
+
+        if (previousView) {
+            restoreView(previousView)
+            return
+        }
+
+        setSelectedTarget(null)
+        focusedMoonRef.current = null
+        setFocusedMoon(null)
+        setHudFeatureFocus(null)
+        hudFeatureFocusRef.current = null
     }
     const releaseToSpace = () => {
         if (freeFlightMode) {
@@ -498,8 +735,9 @@ export default function SolarSystemRenderer(externalProps) {
             focusedMoonRef.current = null
             currentViewRef.current = { mode: "locked", target: view.target }
 
-            targetDistance.current = propsRef.current.focusDistPlanet ?? 6
-            currentDistance.current = propsRef.current.focusDistPlanet ?? 6
+            const orbitDistance = getOrbitDistance(view.target)
+            targetDistance.current = orbitDistance
+            currentDistance.current = orbitDistance
 
             setHudFeatureFocus(null)
             hudFeatureFocusRef.current = null
@@ -511,22 +749,12 @@ export default function SolarSystemRenderer(externalProps) {
 
         if (view.mode === "focus" && view.target) {
             freeNavigationRef.current = false
-            setSelectedTarget(view.target)
+            setFreeFlightMode(false)
+            setSelectedTarget(getLandingTargetName(view.target))
             focusedMoonRef.current = view.target
             currentViewRef.current = { mode: "focus", target: view.target }
 
-            const custom = props.customMarkers?.find(
-                (m) => m.name === view.target
-            )
-            const unit = getSceneUnit(view.target)
-
-            targetDistance.current = getFocusDistance({
-                name: view.target,
-                config: propsRef.current,
-                customMarker: custom,
-                unit,
-                camera: cameraRef.current,
-            })
+            targetDistance.current = getLandingDistance(view.target)
 
             setFocusedMoon(view.target)
             setIsInsideJupiter(false)
@@ -540,6 +768,15 @@ export default function SolarSystemRenderer(externalProps) {
     }
 
     const goBackView = () => {
+        if (focusedMoonRef.current) {
+            if (activeSceneRef.current && returnToActiveSceneOverview()) {
+                return
+            }
+
+            returnToOrbit(focusedMoonRef.current)
+            return
+        }
+
         const previous = viewHistoryRef.current.pop()
 
         if (!previous) {
@@ -586,16 +823,7 @@ export default function SolarSystemRenderer(externalProps) {
         setIsInsideJupiter(false)
         isInsideRef.current = false
 
-        const custom = props.customMarkers?.find((m) => m.name === closestName)
-        const unit = getSceneUnit(closestName)
-
-        targetDistance.current = getFocusDistance({
-            name: closestName,
-            config: propsRef.current,
-            customMarker: custom,
-            unit,
-            camera: cameraRef.current,
-        })
+        targetDistance.current = getOrbitDistance(closestName)
 
         setCfg((prev) => ({ ...prev, hideUI: false }))
     }
@@ -647,11 +875,11 @@ export default function SolarSystemRenderer(externalProps) {
             ringsGroup: ringsGroup.current,
         })
         sceneRef.current = scene
-
         const camera = createCamera({
             container,
             config: props,
         })
+        camera.layers.enable(ASTEROID_LAYER)
         cameraRef.current = camera
 
         const controls = createControls({
@@ -659,6 +887,10 @@ export default function SolarSystemRenderer(externalProps) {
             domElement: renderer.domElement,
             config: props,
         })
+        const handleControlsStart = () => {
+            hasUserInteractedRef.current = true
+        }
+        controls.addEventListener("start", handleControlsStart)
         controlsRef.current = controls
 
         cameraTarget.current.copy(getInitialCameraTarget(props))
@@ -828,6 +1060,8 @@ export default function SolarSystemRenderer(externalProps) {
         const {
             sunLight,
             directionalLight,
+            focusLight,
+            asteroidSunLight,
             ambient,
             sunFlareLight,
             sunFlareSprite,
@@ -924,6 +1158,17 @@ export default function SolarSystemRenderer(externalProps) {
                     speed: props.earthMoonSpeed ?? 1,
                     type: "moon",
                 }
+
+                pivotsRef.current["Moon"].distance =
+                    props.earthMoonDist ?? 1.35
+                pivotsRef.current["Moon"].eccentricity =
+                    props.earthMoonEccentricity ?? 0.055
+                pivotsRef.current["Moon"].inclination =
+                    THREE.MathUtils.degToRad(props.earthMoonInclination ?? 5.14)
+                pivotsRef.current["Moon"].phase = props.earthMoonPhase ?? 0.4
+                pivotsRef.current["Moon"].precessionSpeed =
+                    props.earthMoonPrecessionSpeed ?? 0.00004
+
                 registerSceneUnit({
                     name: "Moon",
                     type: "moon",
@@ -1082,8 +1327,9 @@ export default function SolarSystemRenderer(externalProps) {
             focusedMoonRef.current = null
             currentViewRef.current = { mode: "locked", target: "Jupiter" }
 
-            targetDistance.current = props.focusDistPlanet ?? 6
-            currentDistance.current = props.focusDistPlanet ?? 6
+            const orbitDistance = getOrbitDistance("Jupiter")
+            targetDistance.current = orbitDistance
+            currentDistance.current = orbitDistance
 
             setFocusedMoon(null)
         }
@@ -1209,7 +1455,7 @@ export default function SolarSystemRenderer(externalProps) {
             }
         })
 
-        const instanced = createAsteroidBelt(props)
+        const instanced = createAsteroidBelt(props, loadingManager)
 
         solarSystemGroup.current.add(instanced)
         registerSceneUnit({
@@ -1295,9 +1541,28 @@ export default function SolarSystemRenderer(externalProps) {
                 ? getSceneConfig(p, activeSceneName)
                 : null
             const isRealScaleScene = activeSceneName === "realScaleLine"
+            if (sunMesh.material?.color) {
+                if (isRealScaleScene) {
+                    sunMesh.material.color.set(p.realScaleSunTint ?? 0xff5a1f)
+                } else {
+                    sunMesh.material.color.setRGB(
+                        p.sunColorR ?? 1.2,
+                        p.sunColorG ?? 1.1,
+                        p.sunColorB ?? 0.9
+                    )
+                }
+            }
+            const sceneIntroActive =
+                !!activeSceneName &&
+                time - sceneStartTimeRef.current < (p.sceneIntroLockMs ?? 2500)
             const sunWorldPos = new THREE.Vector3()
             sunMesh.getWorldPosition(sunWorldPos)
             sunFlareLight.position.copy(sunWorldPos)
+            getSceneUnit("AsteroidBelt")?.root?.userData?.asteroidMaterials?.forEach(
+                (material) => {
+                    material.uniforms.sunWorldPosition.value.copy(sunWorldPos)
+                }
+            )
 
             const sunDirection = new THREE.Vector3().subVectors(
                 sunWorldPos,
@@ -1305,15 +1570,22 @@ export default function SolarSystemRenderer(externalProps) {
             )
             const sunDistance = sunDirection.length()
             let sunOccluded = false
+            let sunVisualBlend = 1
 
             if (sunDistance > 0.001) {
                 sunDirection.normalize()
                 raycasterRef.current.set(cam.position, sunDirection)
+                const sunAngularRadius = getAngularRadius({
+                    radius: props.sunSize || 3,
+                    distance: sunDistance,
+                })
 
-                const occluderObjects = Object.values(sceneUnitsRef.current)
-                    .map((unit) => unit.body || unit.root)
-                    .filter(Boolean)
-                    .filter((obj) => obj.name !== "Sun")
+                const occluderUnits = Object.values(sceneUnitsRef.current)
+                    .filter((unit) => unit?.body || unit?.root)
+                    .filter((unit) => (unit.body || unit.root).name !== "Sun")
+                const occluderObjects = occluderUnits.map(
+                    (unit) => unit.body || unit.root
+                )
 
                 const intersections = raycasterRef.current.intersectObjects(
                     occluderObjects,
@@ -1322,14 +1594,58 @@ export default function SolarSystemRenderer(externalProps) {
                 sunOccluded = intersections.some(
                     (hit) => hit.distance < sunDistance - 0.001
                 )
+
+                occluderUnits.forEach((unit) => {
+                    const obj = unit.body || unit.root
+                    const radius = getObjectWorldRadius(unit)
+                    if (!obj || !radius) return
+
+                    const objWorldPos = obj.getWorldPosition(
+                        new THREE.Vector3()
+                    )
+                    const objDistance = cam.position.distanceTo(objWorldPos)
+                    if (objDistance <= 0 || objDistance >= sunDistance) return
+
+                    const objDirection = objWorldPos
+                        .sub(cam.position)
+                        .normalize()
+                    const separation = objDirection.angleTo(sunDirection)
+                    const objAngularRadius = getAngularRadius({
+                        radius,
+                        distance: objDistance,
+                    })
+                    const hideAt =
+                        objAngularRadius +
+                        sunAngularRadius *
+                            (p.sunOcclusionHideRatio ?? 0)
+                    const fadeWidth =
+                        sunAngularRadius *
+                            (p.sunOcclusionFadeWidth ?? 0.8)
+
+                    if (separation <= hideAt) {
+                        sunVisualBlend = 0
+                    } else if (fadeWidth > 0 && separation < hideAt + fadeWidth) {
+                        sunVisualBlend = Math.min(
+                            sunVisualBlend,
+                            (separation - hideAt) / fadeWidth
+                        )
+                    }
+                })
             }
 
-            const flareVisible = !isRealScaleScene && !sunOccluded
+            if (sunOccluded) {
+                sunVisualBlend = 0
+            }
+
+            const flareVisible = !isRealScaleScene && sunVisualBlend > 0.02
             sunFlareLight.visible = flareVisible
             if (sunFlareSpriteRef.current) {
                 sunFlareSpriteRef.current.visible = flareVisible
+                sunFlareSpriteRef.current.material.opacity = sunVisualBlend
             }
             sunGlow.visible = flareVisible
+            sunGlow.material.opacity =
+                (p.sunGlowOpacity ?? 0.18) * sunVisualBlend
             ringsGroup.current.rotation.x = THREE.MathUtils.degToRad(
                 p.ringsRotX || 0
             )
@@ -1372,6 +1688,22 @@ export default function SolarSystemRenderer(externalProps) {
             updateRingLight(saturnRingsGroup.current)
             updateRingLight(uranusRingsGroup.current)
             updateRingLight(neptuneRingsGroup.current)
+            if (saturnRingsGroup.current?.material?.uniforms) {
+                const uniforms = saturnRingsGroup.current.material.uniforms
+                uniforms.opacity.value = isRealScaleScene
+                    ? (p.realScaleSaturnRingOpacity ?? 0.82)
+                    : (p.saturnRingOpacity ?? 0.55)
+                uniforms.lightBoost.value = isRealScaleScene
+                    ? (p.realScaleSaturnRingLightBoost ?? 1.55)
+                    : (p.saturnRingLightBoost ?? 0.5)
+                uniforms.shadowStrength.value = isRealScaleScene
+                    ? (p.realScaleSaturnRingShadowStrength ?? 0.25)
+                    : (p.saturnRingShadowStrength ?? 0.75)
+            }
+
+            let focusModeActive = false
+            let hudFeatureMotionActive = false
+            let landingExperienceActive = false
 
             if (ctrl && cam && container) {
                 setHoveredObjectName(
@@ -1405,27 +1737,52 @@ export default function SolarSystemRenderer(externalProps) {
                     ? getSceneUnitTarget(selectedName)
                     : null
                 const selectedRadius = getObjectWorldRadius(selectedUnit)
+                const selectedWorldPos = selectedObj
+                    ? selectedObj.getWorldPosition(new THREE.Vector3())
+                    : null
+                const selectedCameraDistance = selectedWorldPos
+                    ? cam.position.distanceTo(selectedWorldPos)
+                    : 0
                 const selectedViewportHeight =
-                    selectedObj && selectedRadius
+                    selectedWorldPos && selectedRadius
                         ? getProjectedViewportHeight({
                               camera: cam,
-                              worldPos: selectedObj.getWorldPosition(
-                                  new THREE.Vector3()
-                              ),
+                              worldPos: selectedWorldPos,
                               radius: selectedRadius,
                           })
                         : 0
                 const hudHideViewportHeight =
                     p.hudHideViewportHeight ?? p.planetViewportHeight ?? 0.7
+                const hudShowViewportHeight =
+                    p.hudShowViewportHeight ?? hudHideViewportHeight
+                const hudViewportEpsilon = p.hudHideViewportEpsilon ?? 0.01
+                const focusDistanceTolerance =
+                    p.focusSettleDistanceTolerance ?? 0.12
+                const isCameraSettledOnFocus =
+                    selectedCameraDistance > 0 &&
+                    selectedCameraDistance <=
+                        currentDistance.current * (1 + focusDistanceTolerance)
 
                 const activeHudTarget = focusedMoonRef.current
+                const activeHudOrbitTarget = activeHudTarget
+                    ? getLandingTargetName(activeHudTarget)
+                    : null
+                const activeHudFocusConfig = getHudFocusTargetConfig(
+                    hudFeatureFocusRef.current
+                )
+                landingExperienceActive =
+                    !!activeHudTarget &&
+                    selectedName === activeHudOrbitTarget &&
+                    selectedViewportHeight > 0 &&
+                    selectedViewportHeight >=
+                        hudShowViewportHeight - hudViewportEpsilon
 
-                if (activeHudTarget && selectedName === activeHudTarget) {
+                if (activeHudTarget && selectedName === activeHudOrbitTarget) {
                     const shouldHide =
+                        isCameraSettledOnFocus &&
                         selectedViewportHeight > 0 &&
                         selectedViewportHeight <
-                            hudHideViewportHeight -
-                                (p.hudHideViewportEpsilon ?? 0.01)
+                            hudHideViewportHeight - hudViewportEpsilon
 
                     if (shouldHide) {
                         setHudFeatureFocus(null)
@@ -1435,13 +1792,35 @@ export default function SolarSystemRenderer(externalProps) {
                     }
                 }
 
-                const focusModeActive =
-                    !!focusedMoonRef.current &&
-                    focusedMoonRef.current === selectedName &&
+                if (
+                    !activeHudTarget &&
+                    selectedName &&
+                    !cfgRef.current.hideUI &&
+                    isCameraSettledOnFocus &&
                     selectedViewportHeight > 0 &&
                     selectedViewportHeight >=
-                        hudHideViewportHeight -
-                            (p.hudHideViewportEpsilon ?? 0.01)
+                        hudShowViewportHeight - hudViewportEpsilon
+                ) {
+                    setFocusedMoon(selectedName)
+                    focusedMoonRef.current = selectedName
+                    currentViewRef.current = {
+                        mode: "focus",
+                        target: selectedName,
+                    }
+                }
+
+                focusModeActive =
+                    !!focusedMoonRef.current &&
+                    getLandingTargetName(focusedMoonRef.current) ===
+                        selectedName &&
+                    isCameraSettledOnFocus &&
+                    selectedViewportHeight > 0 &&
+                    selectedViewportHeight >=
+                        hudShowViewportHeight - hudViewportEpsilon
+
+                hudFeatureMotionActive =
+                    landingExperienceActive &&
+                    activeHudFocusConfig?.bodyName === selectedName
 
                 ctrl.minDistance = p.minZoom || 0.05
                 ctrl.maxDistance = p.maxZoomLimit || 1000
@@ -1450,8 +1829,12 @@ export default function SolarSystemRenderer(externalProps) {
                     activeSceneName &&
                     activeSceneConfig?.camera &&
                     !selectedMoonRef.current &&
-                    !hasUserInteractedRef.current
+                    (!hasUserInteractedRef.current || sceneIntroActive)
                 ) {
+                    ctrl.enableZoom = true
+                    ctrl.enablePan = true
+                    ctrl.enableRotate = !isRealScaleScene
+
                     const sceneCamPos = new THREE.Vector3(
                         activeSceneConfig.camera.position[0],
                         activeSceneConfig.camera.position[1],
@@ -1471,7 +1854,7 @@ export default function SolarSystemRenderer(externalProps) {
                 } else if (activeSceneName && !selectedMoonRef.current) {
                     ctrl.enableZoom = true
                     ctrl.enablePan = true
-                    ctrl.enableRotate = true
+                    ctrl.enableRotate = !isRealScaleScene
                     ctrl.update()
                 } else if (freeNavigationRef.current) {
                     ctrl.enableZoom = true
@@ -1479,6 +1862,10 @@ export default function SolarSystemRenderer(externalProps) {
                     ctrl.enableRotate = true
                     ctrl.update()
                 } else {
+                    ctrl.enableZoom = true
+                    ctrl.enablePan = true
+                    ctrl.enableRotate = true
+
                     const moonName = selectedMoonRef.current
                     const targetSunPos = new THREE.Vector3()
 
@@ -1487,25 +1874,16 @@ export default function SolarSystemRenderer(externalProps) {
                     if (moonName && targetObj) {
                         const worldPos = new THREE.Vector3()
                         targetObj.getWorldPosition(worldPos)
-                        const isGreatRedSpotFocus =
-                            moonName === "Jupiter" &&
-                            hudFeatureFocusRef.current ===
-                                "jupiter-great-red-spot"
+                        const hudFocusConfig = activeHudFocusConfig
+                        const hudFocusWorldPos =
+                            hudFeatureMotionActive &&
+                            hudFocusConfig?.bodyName === moonName
+                                ? getHudFocusWorldPosition(hudFocusConfig)
+                                : null
                         const focusWorldPos = worldPos.clone()
 
-                        if (isGreatRedSpotFocus) {
-                            const jupiterRadius =
-                                getObjectWorldRadius(getSceneUnit("Jupiter")) ??
-                                DEFAULT_SYSTEM.Jupiter.radius
-                            const spotLocal = jupiterGreatRedSpotDirectionRef
-                                .current.clone()
-                                .multiplyScalar(
-                                    jupiterRadius *
-                                        (p.greatRedSpotSurfaceOffset ?? 0.98)
-                                )
-                            focusWorldPos.copy(
-                                jupiterGroup.current.localToWorld(spotLocal)
-                            )
+                        if (hudFocusWorldPos) {
+                            focusWorldPos.copy(hudFocusWorldPos)
                         }
 
                         cameraTarget.current.copy(focusWorldPos)
@@ -1527,11 +1905,22 @@ export default function SolarSystemRenderer(externalProps) {
                             )
 
                         cam.position.lerp(desiredCamPos, p.travelSpeed ?? 0.08)
-                        targetSunPos
-                            .copy(cam.position)
+                        const focalLightDirection = new THREE.Vector3()
+                            .subVectors(cam.position, focusWorldPos)
                             .normalize()
-                            .multiplyScalar(20)
-                            .add(focusWorldPos)
+
+                        if (!Number.isFinite(focalLightDirection.x)) {
+                            focalLightDirection.set(0, 0, 1)
+                        }
+
+                        if (landingExperienceActive) {
+                            targetSunPos
+                                .copy(focalLightDirection)
+                                .multiplyScalar(p.focusLightDistance ?? 20)
+                                .add(focusWorldPos)
+                        } else {
+                            targetSunPos.copy(sunWorldPos)
+                        }
                     } else {
                         cameraTarget.current.set(
                             p.targetStartX ?? p.jupiterOrbitDist ?? 45,
@@ -1539,7 +1928,7 @@ export default function SolarSystemRenderer(externalProps) {
                             p.targetStartZ ?? 0
                         )
 
-                        targetSunPos.set(p.sunX ?? -10, 0, p.sunZ ?? 5)
+                        targetSunPos.copy(sunWorldPos)
                     }
 
                     const isInside =
@@ -1553,9 +1942,12 @@ export default function SolarSystemRenderer(externalProps) {
                     }
 
                     sunPosLerp.current.lerp(targetSunPos, 0.05)
-                    directionalLight.position.copy(sunPosLerp.current)
+                    directionalLight.position.copy(sunWorldPos)
                     directionalLight.target.position.copy(cameraTarget.current)
+                    focusLight.position.copy(sunPosLerp.current)
+                    focusLight.target.position.copy(cameraTarget.current)
                     scene.add(directionalLight.target)
+                    scene.add(focusLight.target)
 
                     ctrl.target.lerp(
                         cameraTarget.current,
@@ -1615,6 +2007,7 @@ export default function SolarSystemRenderer(externalProps) {
                 Object.entries(planetPivotsRef.current).forEach(
                     ([name, item]) => {
                         if (item.type !== "planet") return
+                        if (isRealScaleScene) return
 
                         const selected = selectedMoonRef.current
 
@@ -1646,10 +2039,17 @@ export default function SolarSystemRenderer(externalProps) {
                     "IO",
                 ].includes(selectedMoonRef.current)
 
-                const isGreatRedSpotFocus =
-                    hudFeatureFocusRef.current === "jupiter-great-red-spot"
+                const hudFocusConfig = getHudFocusTargetConfig(
+                    hudFeatureFocusRef.current
+                )
+                const isHudFocusExperience =
+                    hudFeatureMotionActive &&
+                    hudFocusConfig?.bodyName === selectedMoonRef.current
 
-                if (isGreatRedSpotFocus) {
+                if (
+                    isHudFocusExperience &&
+                    hudFocusConfig.id === "jupiter-great-red-spot"
+                ) {
                     const targetJupiterRotation =
                         getYRotationToFaceCamera({
                             baseDirection:
@@ -1658,26 +2058,28 @@ export default function SolarSystemRenderer(externalProps) {
                             camera: cam,
                         }) ??
                         THREE.MathUtils.degToRad(
-                            p.greatRedSpotRotationY ?? -124
+                            p[hudFocusConfig.rotationYKey] ?? -124
                         )
 
                     jupiterGroup.current.rotation.y = lerpAngle(
                         jupiterGroup.current.rotation.y,
                         targetJupiterRotation,
-                        p.greatRedSpotTurnSpeed ?? 0.08
+                        p[hudFocusConfig.turnSpeedKey] ?? 0.08
                     )
                 } else if (!focusedJupiterChild) {
                     jupiterGroup.current.rotation.y +=
                         (c.rotateSpeed ?? 0.5) * 0.005
                 }
 
-                updateMoonSystems({
-                    moons: pivotsRef.current,
-                    earth: moonsRef.current["Earth"],
-                    selectedName: selectedMoonRef.current,
-                    orbitSpeed: c.orbitSpeed,
-                    rotateSpeed: c.rotateSpeed,
-                })
+                if (!isRealScaleScene) {
+                    updateMoonSystems({
+                        moons: pivotsRef.current,
+                        earth: moonsRef.current["Earth"],
+                        selectedName: selectedMoonRef.current,
+                        orbitSpeed: c.orbitSpeed,
+                        rotateSpeed: c.rotateSpeed,
+                    })
+                }
 
                 sunMesh.rotation.y += 0.002
                 const clouds = moonsRef.current["Earth_Clouds"]
@@ -1686,7 +2088,11 @@ export default function SolarSystemRenderer(externalProps) {
                 }
             }
 
-            const { overrides, activeSceneUnits } = buildSceneOverrides({
+            const {
+                overrides,
+                activeSceneUnits,
+                activeSceneChildParents,
+            } = buildSceneOverrides({
                 activeSceneConfig,
                 getSceneUnit,
             })
@@ -1696,6 +2102,7 @@ export default function SolarSystemRenderer(externalProps) {
             applySceneVisibility({
                 sceneUnits: sceneUnitsRef.current,
                 activeSceneUnits,
+                activeSceneChildParents,
                 isCustomSceneActive,
             })
 
@@ -1706,47 +2113,98 @@ export default function SolarSystemRenderer(externalProps) {
                 overrides,
             })
 
-            // Keep the rim lift subtle so planets do not bloom when frontlit.
-            const sunPos = new THREE.Vector3()
-            sunMesh.getWorldPosition(sunPos)
-
             Object.values(sceneUnitsRef.current).forEach((unit) => {
                 if (unit?.body?.material && (unit.type === "planet" || unit.type === "moon")) {
-                    const planetPos = new THREE.Vector3()
-                    unit.body.getWorldPosition(planetPos)
-                    const toCam = new THREE.Vector3().subVectors(cam.position, planetPos).normalize()
-                    const toSun = new THREE.Vector3().subVectors(sunPos, planetPos).normalize()
-                    const backlit = toCam.dot(toSun)
-
                     if (unit.body.material.emissiveIntensity !== undefined) {
-                        unit.body.material.emissiveIntensity = Math.max(
-                            0,
-                            backlit * (p.planetBacklightEmissive ?? 0.12)
-                        )
+                        unit.body.material.emissiveIntensity = 0
                     }
                 }
             })
 
-            const sceneSunMultiplier = isRealScaleScene ? 0.04 : 1
+            const sceneSunMultiplier = 1
             const sceneBloomMultiplier = isRealScaleScene ? 0.04 : 1
 
             const focusLightMultiplier =
-                focusModeActive && !isRealScaleScene ? 1 : 0
+                landingExperienceActive && !isRealScaleScene ? 1 : 0
+            focusLightBlendRef.current +=
+                (focusLightMultiplier - focusLightBlendRef.current) *
+                (p.focusLightTransitionSpeed ?? 0.08)
+            const focusLightBlend =
+                focusLightBlendRef.current < 0.001
+                    ? 0
+                    : focusLightBlendRef.current > 0.999
+                      ? 1
+                      : focusLightBlendRef.current
+            focusLightBlendRef.current = focusLightBlend
+
+            const sunBlend = 1 - focusLightBlend
+            const visualSunBlend = sunVisualBlend * sceneSunMultiplier
+            const asteroidSunExposure =
+                ((landingExperienceActive
+                    ? (p.asteroidFocusSunExposure ?? 0.16)
+                    : (p.asteroidSunExposure ?? 0.7)) ??
+                    0.7) * sceneSunMultiplier
+            getSceneUnit("AsteroidBelt")?.root?.userData?.asteroidMaterials?.forEach(
+                (material) => {
+                    if (material.uniforms.sunExposure) {
+                        material.uniforms.sunExposure.value = asteroidSunExposure
+                    }
+                }
+            )
+            const isolatedFocusObject =
+                landingExperienceActive && selectedMoonRef.current
+                    ? getSceneUnit(selectedMoonRef.current)?.body
+                    : null
+            setFocusLayerObject(isolatedFocusObject)
+            Object.values(sceneUnitsRef.current).forEach((unit) => {
+                const body = unit?.body
+                if (!body || body === isolatedFocusObject) return
+                body.userData.focused = false
+            })
+            sunFlareLight.visible = !isRealScaleScene && visualSunBlend > 0.02
+            sunFlareLight.intensity = 0
+            if (sunFlareSpriteRef.current) {
+                sunFlareSpriteRef.current.visible =
+                    !isRealScaleScene && visualSunBlend > 0.02
+                sunFlareSpriteRef.current.material.opacity = visualSunBlend
+            }
+            sunGlow.visible = !isRealScaleScene && visualSunBlend > 0.02
+            sunGlow.material.opacity =
+                (p.sunGlowOpacity ?? 0.18) * visualSunBlend
 
             sunLight.intensity =
-                (c.sunIntensity ?? 8) *
-                sceneSunMultiplier *
-                (focusLightMultiplier ? (p.focusSunMultiplier ?? 0.25) : 1)
+                (p.sunFillIntensity ?? 0) * sceneSunMultiplier
             directionalLight.intensity =
-                (p.focusLightIntensity ?? 1.6) * focusLightMultiplier
-            ambient.intensity = focusLightMultiplier
-                ? (p.focusAmbientIntensity ?? 0.08)
-                : (c.ambientIntensity ?? 0.1)
-            bloomPass.strength =
+                (isRealScaleScene
+                    ? (p.realScaleSunIntensity ?? 1.65)
+                    : (c.sunIntensity ?? 8)) * sceneSunMultiplier
+            focusLight.intensity =
+                (p.focusLightIntensity ?? 1.6) *
+                focusLightBlend *
+                sceneSunMultiplier
+            asteroidSunLight.intensity = 0
+            ambient.intensity =
+                (c.ambientIntensity ?? 0.1) * sunBlend +
+                (p.focusAmbientIntensity ?? 0.08) * focusLightBlend +
+                (isRealScaleScene ? (p.realScaleAmbientIntensity ?? 0.28) : 0)
+            const baseBloomStrength =
                 (c.bloomStrength ?? p.bloomStrength ?? 0.55) *
                 sceneBloomMultiplier
-            bloomPass.radius = c.bloomRadius ?? p.bloomRadius ?? 0.65
-            bloomPass.threshold = c.bloomThreshold ?? p.bloomThreshold ?? 0.04
+            const baseBloomRadius = c.bloomRadius ?? p.bloomRadius ?? 0.65
+            const baseBloomThreshold =
+                c.bloomThreshold ?? p.bloomThreshold ?? 0.04
+            bloomPass.strength =
+                baseBloomStrength *
+                (1 - focusLightBlend) +
+                (p.focusBloomStrength ?? 0) * focusLightBlend
+            bloomPass.radius =
+                baseBloomRadius *
+                (1 - focusLightBlend) +
+                (p.focusBloomRadius ?? 0.02) * focusLightBlend
+            bloomPass.threshold =
+                baseBloomThreshold *
+                (1 - focusLightBlend) +
+                (p.focusBloomThreshold ?? 1) * focusLightBlend
 
             grainPass.uniforms["amount"].value = p.grainAmount ?? 0.012
             grainPass.uniforms["brightnessProtect"].value =
@@ -1768,6 +2226,10 @@ export default function SolarSystemRenderer(externalProps) {
             container.removeEventListener("wheel", handleWheel)
 
             if (controlsRef.current) {
+                controlsRef.current.removeEventListener(
+                    "start",
+                    handleControlsStart
+                )
                 controlsRef.current.dispose()
                 controlsRef.current = null
             }
@@ -1792,13 +2254,14 @@ export default function SolarSystemRenderer(externalProps) {
 
     const focusOn = (name) => {
         const wasFocused = focusedMoonRef.current === name
+        const targetName = getLandingTargetName(name)
 
         pushCurrentViewToHistory()
 
         hasUserInteractedRef.current = true
         freeNavigationRef.current = false
         setFreeFlightMode(false)
-        setSelectedTarget(name)
+        setSelectedTarget(targetName)
         focusedMoonRef.current = name
         if (name !== "Jupiter") {
             setHudFeatureFocus(null)
@@ -1807,16 +2270,7 @@ export default function SolarSystemRenderer(externalProps) {
 
         currentViewRef.current = { mode: "focus", target: name }
 
-        const custom = props.customMarkers?.find((m) => m.name === name)
-        const unit = getSceneUnit(name)
-
-        const focusDist = getFocusDistance({
-            name,
-            config: propsRef.current,
-            customMarker: custom,
-            unit,
-            camera: cameraRef.current,
-        })
+        const focusDist = getLandingDistance(name)
 
         targetDistance.current = focusDist
         currentDistance.current = focusDist
@@ -1892,7 +2346,7 @@ export default function SolarSystemRenderer(externalProps) {
             style={containerMainStyle}
             onPointerDown={() => {
                 if (
-                    (cleanNavigationMode || freeFlightMode) &&
+                    (cleanNavigationMode || freeFlightMode || activeScene) &&
                     hoveredObjectName
                 ) {
                     focusOn(hoveredObjectName)
@@ -1918,7 +2372,7 @@ export default function SolarSystemRenderer(externalProps) {
                 isInsideJupiter={isInsideJupiter}
                 cleanNavigationMode={cleanNavigationMode}
                 freeFlightMode={freeFlightMode}
-                autoHideUI={autoHideUI}
+                autoHideUI={activeScene ? false : autoHideUI}
                 cfg={cfg}
                 config={props}
                 isJupiterChildTarget={isJupiterChildTarget}
@@ -1927,6 +2381,7 @@ export default function SolarSystemRenderer(externalProps) {
                 onFocus={focusOn}
                 hudOpen={!!ActiveOverlay || !!InteriorOverlay}
                 hoveredObjectName={hoveredObjectName}
+                labelsOnlyOnHover={activeScene === "realScaleLine"}
             />
             {cleanNavigationMode && (
                 <div

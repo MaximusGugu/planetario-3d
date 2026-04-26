@@ -12,8 +12,22 @@ export const updateMoonSystems = ({
 
         if (isEarthMoon) {
             if (selectedName !== "Moon") {
-                moon.pivot.rotation.y += 0.01 * (moon.speed ?? 1)
+                moon.phase = (moon.phase ?? 0) + 0.01 * (moon.speed ?? 1)
+                moon.pivot.rotation.y += moon.precessionSpeed ?? 0.00004
             }
+
+            const phase = moon.phase ?? 0
+            const distance = moon.distance ?? moon.mesh.position.length()
+            const eccentricity = moon.eccentricity ?? 0.055
+            const orbitalRadius =
+                (distance * (1 - eccentricity * eccentricity)) /
+                (1 + eccentricity * Math.cos(phase))
+
+            moon.mesh.position.set(
+                Math.cos(phase) * orbitalRadius,
+                Math.sin(phase) * orbitalRadius * Math.sin(moon.inclination ?? 0),
+                Math.sin(phase) * orbitalRadius
+            )
 
             if (earth) {
                 const earthWorld = new THREE.Vector3()

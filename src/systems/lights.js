@@ -136,15 +136,43 @@ export const createSunLighting = ({
     directionalLight.shadow.camera.bottom = -20
     scene.add(directionalLight)
 
+    const focusLight = new THREE.DirectionalLight(
+        0xffffff,
+        config.focusLightIntensity ?? 1.6
+    )
+    focusLight.castShadow = true
+    focusLight.shadow.mapSize.width = 2048
+    focusLight.shadow.mapSize.height = 2048
+    focusLight.shadow.camera.near = 0.1
+    focusLight.shadow.camera.far = 200
+    focusLight.shadow.camera.left = -20
+    focusLight.shadow.camera.right = 20
+    focusLight.shadow.camera.top = 20
+    focusLight.shadow.camera.bottom = -20
+    scene.add(focusLight)
+
+    const asteroidSunLight = new THREE.DirectionalLight(
+        0xffffff,
+        0
+    )
+    asteroidSunLight.layers.set(1)
+    asteroidSunLight.layers.disable(0)
+    asteroidSunLight.layers.disable(2)
+    asteroidSunLight.castShadow = false
+    scene.add(asteroidSunLight)
+
     const ambient = new THREE.AmbientLight(
         0xffffff,
         config.ambientIntensity ?? 0
     )
+    ambient.layers.enable(2)
     scene.add(ambient)
 
     return {
         sunLight,
         directionalLight,
+        focusLight,
+        asteroidSunLight,
         ambient,
         sunFlareLight,
         sunFlareSprite,

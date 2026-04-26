@@ -30,9 +30,9 @@ export const createSphere = ({
         : new THREE.MeshStandardMaterial({
               map: texture || null,
               color: texture ? 0xffffff : color,
-              roughness: 0.85,
+              roughness: config.planetRoughness ?? 1,
               metalness: 0,
-              emissive: 0x444444,
+              emissive: 0x000000,
               emissiveIntensity: 0,
               side: THREE.FrontSide,
           })

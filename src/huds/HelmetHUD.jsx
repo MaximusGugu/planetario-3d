@@ -1,8 +1,11 @@
 import { useState } from "react"
+import TextType from "../components/TextType.jsx"
 
 const hudRootStyle = {
     width: "100vw",
     height: "100vh",
+    boxSizing: "border-box",
+    padding: "12px 16px",
     position: "relative",
     overflow: "hidden",
     pointerEvents: "none",
@@ -12,55 +15,71 @@ const hudRootStyle = {
 
 const frameStyle = {
     position: "absolute",
-    inset: "5.5vh 2.8vw 4vh",
+    inset: "5% 2.5%",
     filter: "drop-shadow(0 0 18px rgba(255,255,255,0.28))",
     opacity: 0.96,
 }
 
 const frameLineStyle = {
     position: "absolute",
-    background: "rgba(255,255,255,0.84)",
+    background: "rgba(255,255,255,0.9)",
     boxShadow:
-        "0 0 8px rgba(255,255,255,0.8), 0 0 22px rgba(255,255,255,0.26)",
-    animation: "hudFramePulse 4.5s ease-in-out infinite",
+        "0 0 6px rgba(255,255,255,0.7), 0 0 16px rgba(255,255,255,0.2)",
 }
 
 const contentStyle = {
     position: "absolute",
-    inset: 0,
+    top: "7.5%",
+    left: "3%",
+    right: "3%",
+    width: "90%",
+    height: "85%",
     display: "grid",
-    gridTemplateColumns: "minmax(280px, 42vw) minmax(240px, 30vw)",
-    alignItems: "end",
+    gridTemplateColumns: "minmax(240px, 34vw) minmax(220px, 28vw)",
+    alignItems: "stretch",
     justifyContent: "space-between",
-    gap: 40,
-    padding: "22vh 7vw 17vh",
+    gap: 32,
+    padding: "4vh 1vw 0 3vw",
 }
 
 const titleStyle = {
-    margin: "0 0 24px",
-    fontFamily: "Georgia, 'Times New Roman', serif",
+    margin: "0 0 18px",
+    fontFamily: "'Denton Text', serif",
     fontStyle: "italic",
-    fontSize: "clamp(64px, 8vw, 128px)",
-    lineHeight: 0.82,
+    fontSize: "clamp(16px, 1.8vw, 28px)",
+    lineHeight: 0.86,
     color: "#df8845",
     textShadow: "0 0 24px rgba(223,136,69,0.22)",
 }
 
 const bodyStyle = {
-    maxWidth: 620,
-    fontSize: "clamp(13px, 1vw, 16px)",
-    lineHeight: 1.58,
+    maxWidth: 500,
+    fontSize: "clamp(12px, 0.82vw, 14px)",
+    lineHeight: 1.48,
     fontWeight: 700,
+    fontFamily: "'General Sans', sans-serif",
     textShadow: "0 2px 12px rgba(0,0,0,0.9)",
+}
+
+export const hudTitleStyle = titleStyle
+export const hudBodyStyle = bodyStyle
+
+const leftArticleStyle = {
+    alignSelf: "stretch",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "space-between",
+    minHeight: 0,
 }
 
 const accordionPanelStyle = {
     pointerEvents: "auto",
     alignSelf: "end",
     justifySelf: "end",
-    width: "min(520px, 34vw)",
-    minWidth: 320,
-    padding: "22px 34px 6vh 28px",
+    width: "min(460px, 30vw)",
+    minWidth: 280,
+    padding: "16px 8px 0 22px",
+    marginRight: 0,
 }
 
 const accordionButtonStyle = {
@@ -68,26 +87,73 @@ const accordionButtonStyle = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 16,
+    gap: 14,
     border: "none",
     borderTop: "1px solid rgba(255,255,255,0.72)",
-    padding: "18px 0 14px",
+    padding: "13px 0 11px",
     background: "transparent",
     color: "#fff",
     cursor: "pointer",
+    outline: "none",
     font: "inherit",
     fontWeight: 800,
+    fontSize: "clamp(12px, 0.9vw, 15px)",
     textAlign: "left",
 }
 
 const accordionTextStyle = {
-    margin: "0 0 16px",
-    fontSize: "clamp(13px, 1vw, 16px)",
-    lineHeight: 1.55,
+    maxWidth: 390,
+    margin: "0 0 12px",
+    fontSize: "clamp(11px, 0.78vw, 13px)",
+    lineHeight: 1.42,
     fontWeight: 650,
+    fontFamily: "'General Sans', sans-serif",
     color: "rgba(255,255,255,0.92)",
     textShadow: "0 2px 12px rgba(0,0,0,0.9)",
 }
+
+const AccordionIcon = ({ isOpen }) => (
+    <svg
+        width="18"
+        height="18"
+        viewBox="0 0 18 18"
+        aria-hidden="true"
+        focusable="false"
+        style={{
+            flex: "0 0 auto",
+            filter: "drop-shadow(0 0 6px rgba(255,255,255,0.55))",
+        }}
+    >
+        <line
+            x1="4"
+            y1="9"
+            x2="14"
+            y2="9"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            style={{
+                transformOrigin: "9px 9px",
+                transition: "transform 220ms ease, opacity 220ms ease",
+            }}
+        />
+        <line
+            x1="9"
+            y1="4"
+            x2="9"
+            y2="14"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            style={{
+                opacity: isOpen ? 0 : 1,
+                transform: isOpen ? "scaleY(0)" : "scaleY(1)",
+                transformOrigin: "9px 9px",
+                transition: "transform 220ms ease, opacity 220ms ease",
+            }}
+        />
+    </svg>
+)
 
 const cornerTicksStyle = {
     position: "absolute",
@@ -106,123 +172,68 @@ const longTicksStyle = {
     right: "3vw",
     top: "50%",
     transform: "translateY(-50%)",
-    width: 30,
+    width: 40,
     height: "60vh",
-    opacity: 0.85,
+    opacity: 0.5,
     background:
-        "repeating-linear-gradient(to bottom, transparent 0 10px, rgba(255,255,255,0.35) 11px 12px)",
-    filter: "drop-shadow(0 0 6px rgba(255,255,255,0.4))",
+        "repeating-linear-gradient(to bottom, transparent 0 9px, rgba(255,255,255,0.4) 10px 11px)",
+    filter: "drop-shadow(0 0 6px rgba(255,255,255,0.45))",
+}
+
+const cornerBlockStyle = {
+    ...frameLineStyle,
+    width: 64,
+    height: 6,
+    background: "transparent",
+    border: "1px solid rgba(255,255,255,0.8)",
+    boxSizing: "border-box",
 }
 
 const Frame = () => (
     <div style={frameStyle} aria-hidden="true">
+        {/* GRID COM FADE NAS BORDAS */}
         <div
-            style={{ //LINHA SUPERIOR ESQUERDA
-                ...frameLineStyle,
-                top: 5,
-                left: "2.8vw",
-                width: "43vw",
-                height: 1,
+            style={{
+                position: "absolute",
+                inset: 0,
+                opacity: 0.25,
+                backgroundImage:
+                    "radial-gradient(rgba(255,255,255,0.6) 1px, transparent 1px)",
+                backgroundSize: "42px 42px",
+                WebkitMaskImage:
+                    "radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0,0,0,0.3) 60%, black 100%)",
+                maskImage:
+                    "radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0,0,0,0.3) 60%, black 100%)",
             }}
         />
-        <div
-            style={{ //LINHA SUPERIOR DIREITA
-                ...frameLineStyle,
-                top: 5,
-                right: "6vw",
-                width: "40vw",
-                height: 1,
-            }}
-        />
-        <div
-            style={{ //DIAMANTE CENTRO SUPERIOR
-                ...frameLineStyle,
-                top: -2,
-                left: "50%",
-                width: 14,
-                height: 14,
-                borderRight: "2px solid rgba(255,255,255,0.86)",
-                borderBottom: "2px solid rgba(255,255,255,0.86)",
-                background: "transparent",
-                transform: "translateX(-50%) rotate(45deg)",
-            }}
-        />
-        <div
-            style={{ //LINHA LATERAL ESQUERDA 
-                ...frameLineStyle,
-                left: 0,
-                top: "5.5vh",
-                bottom: "5.5vh",
-                width: 1,
-            }}
-        />
-        <div
-            style={{ //LINHA DIAGONAO TOP
-                ...frameLineStyle,
-                left: 0,
-                top: 60,
-                width: "4vw",
-                height: 1,
-                transform: "rotate(-45deg)",
-                transformOrigin: "left center",
-            }}
-        />
-        <div
-            style={{ // DIAGONAL ESQUERDA
-                ...frameLineStyle,
-                left: 0,
-                bottom: 60,
-                width: "4vw",
-                height: 1,
-                transform: "rotate(45deg)",
-                transformOrigin: "left center",
-            }}
-        />
-        <div
-            style={{ //LINHA INTFERIOR ESQUERDA
-                ...frameLineStyle,
-                bottom: 5,
-                left: "2.8vw",
-                width: "32vw",
-                height: 1,
-            }}
-        />
-        <div
-            style={{ //LINHA INFERIOR DIREITA
-                ...frameLineStyle,
-                bottom: 5,
-                right: "6vw",
-                width: "28vw",
-                height: 1,
-            }}
-        />
-        <div
-            style={{ // DETALHE INFERIOR ESQUERDO
-                ...frameLineStyle,
-                left: "33vw",
-                bottom: 4,
-                width: 42,
-                height: 4,
-            }}
-        />
-        <div
-            style={{ // DETALHE INFERIOR DIREITO1
-                ...frameLineStyle,
-                right: "33vw",
-                bottom: 4,
-                width: 42,
-                height: 4,
-            }}
-        />
-        <div
-            style={{ // DETALHE INFERIOR DIREITO2
-                ...frameLineStyle,
-                right: "6vw",
-                bottom: 5,
-                width: 42,
-                height: 4,
-            }}
-        />
+
+        {/* TOPO COM DESNÍVEL */}
+        <div style={{ ...frameLineStyle, top: 0, left: 0, width: "calc(50% - 149px)", height: 1 }} />
+        <div style={{ ...frameLineStyle, top: -12, left: "calc(50% - 153px)", width: 22, height: 1, transform: "rotate(-35deg)", transformOrigin: "right center" }} />
+        <div style={{ ...frameLineStyle, top: -10, left: "calc(50% - 135px)", width: 270, height: 1 }} />
+        <div style={{ ...frameLineStyle, top: -12, right: "calc(50% - 153px)", width: 22, height: 1, transform: "rotate(35deg)", transformOrigin: "left center" }} />
+        <div style={{ ...frameLineStyle, top: 0, right: 0, width: "calc(50% - 149px)", height: 1 }} />
+
+        {/* LATERAIS */}
+        <div style={{ ...frameLineStyle, left: 0, top: 0, bottom: 0, width: 1 }} />
+        <div style={{ ...frameLineStyle, right: 0, top: 0, bottom: 0, width: 1 }} />
+
+        {/* BASE COM DESNÍVEL */}
+        <div style={{ ...frameLineStyle, bottom: 0, left: 0, width: "calc(50% - 149px)", height: 1 }} />
+        <div style={{ ...frameLineStyle, bottom: -12, left: "calc(50% - 153px)", width: 22, height: 1, transform: "rotate(35deg)", transformOrigin: "right center" }} />
+        <div style={{ ...frameLineStyle, bottom: -10, left: "calc(50% - 135px)", width: 270, height: 1 }} />
+        <div style={{ ...frameLineStyle, bottom: -12, right: "calc(50% - 153px)", width: 22, height: 1, transform: "rotate(-35deg)", transformOrigin: "left center" }} />
+        <div style={{ ...frameLineStyle, bottom: 0, right: 0, width: "calc(50% - 149px)", height: 1 }} />
+
+        {/* BARRINHAS CENTRAIS */}
+        <div style={{ ...frameLineStyle, top: -5, left: "50%", width: 64, height: 4, borderRadius: 999, transform: "translateX(-50%)" }} />
+        <div style={{ ...frameLineStyle, bottom: -12, left: "50%", width: 64, height: 4, borderRadius: 999, transform: "translateX(-50%)" }} />
+
+        {/* RETÂNGULOS DOS CANTOS */}
+        <div style={{ ...cornerBlockStyle, top: 0, left: 0 }} />
+        <div style={{ ...cornerBlockStyle, top: 0, right: 0 }} />
+        <div style={{ ...cornerBlockStyle, bottom: 0, left: 0 }} />
+        <div style={{ ...cornerBlockStyle, bottom: 0, right: 0 }} />
     </div>
 )
 
@@ -232,8 +243,9 @@ export function HelmetHUD({
     accordionItems = [],
     content = true,
     onAccordionChange,
+    titleComponent,
 }) {
-    const [openItem, setOpenItem] = useState(0)
+    const [openItem, setOpenItem] = useState(-1)
 
     return (
         <section style={hudRootStyle} aria-label={`${title || "Planet"} HUD`}>
@@ -242,8 +254,8 @@ export function HelmetHUD({
 
             {content && (
                 <div style={contentStyle}>
-                    <article>
-                        <h1 style={titleStyle}>{title}</h1>
+                    <article style={leftArticleStyle}>
+                        {titleComponent ? titleComponent : <h1 style={titleStyle}>{title}</h1>}
                         <div style={bodyStyle}>{children}</div>
                     </article>
 
@@ -272,12 +284,25 @@ export function HelmetHUD({
                                         }}
                                     >
                                         <span>{item.title}</span>
-                                        <span>{isOpen ? "x" : "+"}</span>
+                                        <AccordionIcon isOpen={isOpen} />
                                     </button>
                                     {isOpen && (
-                                        <p style={accordionTextStyle}>
-                                            {item.content}
-                                        </p>
+                                        <TextType
+                                            text={item.content}
+                                            typingSpeed={20}
+                                            pauseDuration={800}
+                                            loop={false}
+                                            showCursor={true}
+                                            cursorCharacter="▌"
+                                            deletingSpeed={45}
+                                            className="hud-accordion-typing"
+                                            style={{
+                                                ...accordionTextStyle,
+                                                display: 'block',
+                                                margin: '12px 0 18px',
+                                                fontWeight: 650,
+                                            }}
+                                        />
                                     )}
                                 </div>
                             )

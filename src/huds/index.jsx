@@ -1,4 +1,5 @@
 import JupiterHUD from "./JupiterHUD.jsx"
+import IoHUD from "./IoHUD.jsx"
 import EuropaHUD from "./EuropaHUD.jsx"
 import GanymedeHUD from "./GanymedeHUD.jsx"
 import CallistoHUD from "./CallistoHUD.jsx"
@@ -23,7 +24,7 @@ export const HUD_BY_BODY = {
     Saturn: <SaturnHUD />,
     Uranus: <UranusHUD />,
     Neptune: <NeptuneHUD />,
-    IO: <DefaultHUD title="Io" />,
+    IO: <IoHUD />,
     Europa: <EuropaHUD />,
     Ganymede: <GanymedeHUD />,
     Callisto: <CallistoHUD />,

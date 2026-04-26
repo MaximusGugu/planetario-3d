@@ -58,3 +58,16 @@ export const restoreSceneUnitVisibility = (sceneUnits) => {
         if (unit?.body) unit.body.visible = true
     })
 }
+
+export const restoreSceneUnitState = (sceneUnits, savedState) => {
+    Object.entries(sceneUnits).forEach(([name, unit]) => {
+        const root = unit?.root
+        const saved = savedState?.[name]
+        if (!root || !saved) return
+
+        root.position.copy(saved.position)
+        root.rotation.copy(saved.rotation)
+        root.scale.copy(saved.scale)
+        root.visible = saved.visible
+    })
+}
