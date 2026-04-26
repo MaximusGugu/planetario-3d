@@ -28,19 +28,19 @@ export default function OverlayHost({
         return null
     }
 
+    const strength = 0.25
+
     return (
         <div
             style={{
                 ...overlayWrapperStyle,
                 zIndex: 5000,
-                transform: `translate(${mousePos.x * hudIntensity}px, ${
-                    mousePos.y * hudIntensity
+                transform: `translate(${mousePos.x * hudIntensity * strength}px, ${
+                    mousePos.y * hudIntensity * strength
                 }px)`,
             }}
         >
-            <div
-                style={overlayContentStyle}
-            >
+            <div style={overlayContentStyle}>
                 {interiorOverlay ? interiorOverlay : activeOverlay}
             </div>
         </div>

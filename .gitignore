@@ -2,6 +2,9 @@ node_modules/
 dist/
 dev-server*.log
 *.local
+assets/index-*.js
+assets/index-*.css
+textures/textures/
 
 .DS_Store
 Thumbs.db

@@ -103,14 +103,15 @@ const cornerTicksStyle = {
 
 const longTicksStyle = {
     position: "absolute",
-    right: "5.3vw",
-    bottom: "30vh",
-    width: 92,
-    height: "28vh",
-    opacity: 0.42,
+    right: "3vw",
+    top: "50%",
+    transform: "translateY(-50%)",
+    width: 30,
+    height: "60vh",
+    opacity: 0.85,
     background:
-        "repeating-linear-gradient(to bottom, transparent 0 31px, rgba(255,255,255,0.84) 32px 34px, transparent 35px 52px)",
-    filter: "drop-shadow(0 0 12px rgba(255,255,255,0.42))",
+        "repeating-linear-gradient(to bottom, transparent 0 10px, rgba(255,255,255,0.35) 11px 12px)",
+    filter: "drop-shadow(0 0 6px rgba(255,255,255,0.4))",
 }
 
 const Frame = () => (
@@ -150,8 +151,8 @@ const Frame = () => (
             style={{ //LINHA LATERAL ESQUERDA 
                 ...frameLineStyle,
                 left: 0,
-                top: "6.56vh",
-                bottom: "6.56vh",
+                top: "5.5vh",
+                bottom: "5.5vh",
                 width: 1,
             }}
         />
@@ -237,7 +238,6 @@ export function HelmetHUD({
     return (
         <section style={hudRootStyle} aria-label={`${title || "Planet"} HUD`}>
             <Frame />
-            <div style={cornerTicksStyle} />
             <div style={longTicksStyle} />
 
             {content && (

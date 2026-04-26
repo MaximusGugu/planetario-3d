@@ -7,6 +7,20 @@
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <script type="module">
+      const isGitHubPages = window.location.hostname === "maximusgugu.github.io"
+
+      if (isGitHubPages) {
+        const stylesheet = document.createElement("link")
+        stylesheet.rel = "stylesheet"
+        stylesheet.href = "/planetario-3d/assets/app.css"
+        document.head.appendChild(stylesheet)
+
+        const appBundle = "/planetario-3d/assets/" + "app.js"
+        import(appBundle)
+      } else {
+        import("/src/main.jsx")
+      }
+    </script>
   </body>
 </html>
