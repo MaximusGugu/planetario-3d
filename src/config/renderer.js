@@ -66,7 +66,7 @@ export const rendererConfig = {
     sunFlareSpriteSize: 18,
     sunFlareBrightness: 0.75,
     planetBacklightEmissive: 0.12,
-    hudHideViewportHeight: 0.3,
+    hudHideViewportHeight: 0.7,
     sunIntensity: 0.5,
     bloomStrength: 0.1,
     bloomRadius: 0.35,

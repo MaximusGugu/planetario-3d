@@ -1414,7 +1414,8 @@ export default function SolarSystemRenderer(externalProps) {
                               radius: selectedRadius,
                           })
                         : 0
-                const hudHideViewportHeight = p.hudHideViewportHeight ?? 0.3
+                const hudHideViewportHeight =
+                    p.hudHideViewportHeight ?? p.planetViewportHeight ?? 0.7
 
                 if (focusedMoon && selectedName === focusedMoon) {
                     const shouldHide =
