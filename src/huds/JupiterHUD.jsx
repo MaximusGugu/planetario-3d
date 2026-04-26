@@ -8,6 +8,7 @@ const accordionItems = [
     },
     {
         title: "A Grande Mancha Vermelha",
+        feature: "jupiter-great-red-spot",
         content:
             "A Grande Mancha Vermelha é uma tempestade gigantesca observada há séculos. Ela é maior que a Terra e funciona como um laboratório natural para entender fluidos, ventos e energia em atmosferas extremas.",
     },
@@ -18,9 +19,15 @@ const accordionItems = [
     },
 ]
 
-export default function JupiterHUD() {
+export default function JupiterHUD({ onFeatureFocus }) {
     return (
-        <HelmetHUD title="Jupiter" accordionItems={accordionItems}>
+        <HelmetHUD
+            title="Jupiter"
+            accordionItems={accordionItems}
+            onAccordionChange={(item) => {
+                onFeatureFocus?.(item?.feature ?? null)
+            }}
+        >
             <p>
                 Júpiter é o maior planeta do Sistema Solar e domina a região
                 externa com sua massa, seu campo magnético e sua coleção de

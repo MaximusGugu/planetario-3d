@@ -52,6 +52,47 @@ import OverlayHost from "../ui/OverlayHost.jsx"
 import SettingsPanel from "../ui/SettingsPanel.jsx"
 import StarTravel from "./StarTravel.jsx"
 
+const lerpAngle = (from, to, amount) => {
+    const delta = Math.atan2(Math.sin(to - from), Math.cos(to - from))
+    return from + delta * amount
+}
+
+const getSphereTextureDirection = ({ u, v }) => {
+    const phi = u * Math.PI * 2
+    const theta = v * Math.PI
+
+    return new THREE.Vector3(
+        -Math.cos(phi) * Math.sin(theta),
+        Math.cos(theta),
+        Math.sin(phi) * Math.sin(theta)
+    ).normalize()
+}
+
+const getYRotationToFaceCamera = ({ baseDirection, object, camera }) => {
+    if (!baseDirection || !object?.parent || !camera) return null
+
+    const centerWorld = new THREE.Vector3()
+    object.getWorldPosition(centerWorld)
+
+    const cameraDirectionWorld = new THREE.Vector3()
+        .subVectors(camera.position, centerWorld)
+        .normalize()
+
+    const centerParent = object.parent.worldToLocal(centerWorld.clone())
+    const cameraParent = object.parent.worldToLocal(
+        centerWorld.clone().add(cameraDirectionWorld)
+    )
+    const cameraDirectionParent = cameraParent.sub(centerParent).normalize()
+
+    const baseAngle = Math.atan2(baseDirection.z, baseDirection.x)
+    const cameraAngle = Math.atan2(
+        cameraDirectionParent.z,
+        cameraDirectionParent.x
+    )
+
+    return baseAngle - cameraAngle
+}
+
 export default function SolarSystemRenderer(externalProps) {
     const props = useMemo(
         () => ({ ...rendererConfig, ...(externalProps || {}) }),
@@ -85,10 +126,18 @@ export default function SolarSystemRenderer(externalProps) {
     const jupiterInteriorRadiusRef = useRef(
         props.jupiterRadius ?? DEFAULT_SYSTEM.Jupiter.radius
     )
+    const jupiterGreatRedSpotDirectionRef = useRef(
+        getSphereTextureDirection({
+            u: props.greatRedSpotTextureU ?? 0.365,
+            v: props.greatRedSpotTextureV ?? 0.635,
+        })
+    )
 
     const [labels, setLabels] = useState([])
     const [focusedMoon, setFocusedMoon] = useState(null)
     const focusedMoonRef = useRef(null)
+    const [hudFeatureFocus, setHudFeatureFocus] = useState(null)
+    const hudFeatureFocusRef = useRef(null)
     const [isInsideJupiter, setIsInsideJupiter] = useState(false)
     const [showSettings, setShowSettings] = useState(false)
     const [settingsAnchorX, setSettingsAnchorX] = useState(null)
@@ -207,6 +256,10 @@ export default function SolarSystemRenderer(externalProps) {
 
     useEffect(() => {
         propsRef.current = props
+        jupiterGreatRedSpotDirectionRef.current = getSphereTextureDirection({
+            u: props.greatRedSpotTextureU ?? 0.365,
+            v: props.greatRedSpotTextureV ?? 0.635,
+        })
     }, [props])
 
     useEffect(() => {
@@ -216,6 +269,10 @@ export default function SolarSystemRenderer(externalProps) {
     useEffect(() => {
         focusedMoonRef.current = focusedMoon
     }, [focusedMoon])
+
+    useEffect(() => {
+        hudFeatureFocusRef.current = hudFeatureFocus
+    }, [hudFeatureFocus])
 
     const getActiveOverlay = () => {
         if (!focusedMoon) return null
@@ -244,7 +301,55 @@ export default function SolarSystemRenderer(externalProps) {
         return null
     }
 
-    const ActiveOverlay = getActiveOverlay()
+    const getDefaultFocusDistance = (name) => {
+        const custom = props.customMarkers?.find((m) => m.name === name)
+        const unit = getSceneUnit(name)
+
+        return getFocusDistance({
+            name,
+            config: propsRef.current,
+            customMarker: custom,
+            unit,
+            camera: cameraRef.current,
+        })
+    }
+
+    const handleHudFeatureFocus = (feature) => {
+        setHudFeatureFocus(feature)
+        hudFeatureFocusRef.current = feature
+
+        if (feature === "jupiter-great-red-spot") {
+            if (selectedMoonRef.current !== "Jupiter") {
+                focusOn("Jupiter")
+            }
+
+            const jupiterUnit = getSceneUnit("Jupiter")
+            const jupiterRadius = getObjectWorldRadius(jupiterUnit)
+            const featureDistance = getDistanceForViewportHeight({
+                camera: cameraRef.current,
+                radius: jupiterRadius,
+                viewportFraction: props.greatRedSpotViewportHeight ?? 1.08,
+            })
+
+            targetDistance.current =
+                featureDistance ?? getDefaultFocusDistance("Jupiter")
+            return
+        }
+
+        if (selectedMoonRef.current === "Jupiter") {
+            targetDistance.current = getDefaultFocusDistance("Jupiter")
+        }
+    }
+
+    const decorateOverlay = (overlay) => {
+        if (!React.isValidElement(overlay)) return overlay
+
+        return React.cloneElement(overlay, {
+            onFeatureFocus: handleHudFeatureFocus,
+        })
+    }
+
+    const ActiveOverlay = decorateOverlay(getActiveOverlay())
     const InteriorOverlay = isInsideJupiter
         ? props.overlayInteriorJupiter || <JupiterInteriorHUD />
         : null
@@ -287,6 +392,8 @@ export default function SolarSystemRenderer(externalProps) {
     const clearView = () => {
         setFocusedMoon(null)
         focusedMoonRef.current = null
+        setHudFeatureFocus(null)
+        hudFeatureFocusRef.current = null
         setIsInsideJupiter(false)
         isInsideRef.current = false
     }
@@ -382,6 +489,24 @@ export default function SolarSystemRenderer(externalProps) {
 
         if (view.mode === "scene" && view.target) {
             startScene(view.target)
+        }
+
+        if (view.mode === "locked" && view.target) {
+            freeNavigationRef.current = false
+            setFreeFlightMode(false)
+            setSelectedTarget(view.target)
+            focusedMoonRef.current = null
+            currentViewRef.current = { mode: "locked", target: view.target }
+
+            targetDistance.current = propsRef.current.focusDistPlanet ?? 6
+            currentDistance.current = propsRef.current.focusDistPlanet ?? 6
+
+            setHudFeatureFocus(null)
+            hudFeatureFocusRef.current = null
+            setFocusedMoon(null)
+            setIsInsideJupiter(false)
+            isInsideRef.current = false
+            setCfg((prev) => ({ ...prev, hideUI: false }))
         }
 
         if (view.mode === "focus" && view.target) {
@@ -919,7 +1044,7 @@ export default function SolarSystemRenderer(externalProps) {
 
         const jupiter = makeSphere({
             name: "Jupiter",
-            textureUrl: "/textures/06jupiter.jpg",
+            textureUrl: rendererConfig.jupiterTexture,
             radius: jupiterRadius,
             position: DEFAULT_SYSTEM.Jupiter.position,
             color: DEFAULT_SYSTEM.Jupiter.color,
@@ -1294,8 +1419,12 @@ export default function SolarSystemRenderer(externalProps) {
 
                 // Debug: log hide logic
                 if (focusedMoon && selectedName === focusedMoon && hideDistance) {
-                    const shouldHide = currentDistance.current > hideDistance
+                    const shouldHide =
+                        currentDistance.current > hideDistance &&
+                        targetDistance.current > hideDistance
                     if (shouldHide) {
+                        setHudFeatureFocus(null)
+                        hudFeatureFocusRef.current = null
                         setFocusedMoon(null)
                     }
                 }
@@ -1354,8 +1483,28 @@ export default function SolarSystemRenderer(externalProps) {
                     if (moonName && targetObj) {
                         const worldPos = new THREE.Vector3()
                         targetObj.getWorldPosition(worldPos)
+                        const isGreatRedSpotFocus =
+                            moonName === "Jupiter" &&
+                            hudFeatureFocusRef.current ===
+                                "jupiter-great-red-spot"
+                        const focusWorldPos = worldPos.clone()
 
-                        cameraTarget.current.copy(worldPos)
+                        if (isGreatRedSpotFocus) {
+                            const jupiterRadius =
+                                getObjectWorldRadius(getSceneUnit("Jupiter")) ??
+                                DEFAULT_SYSTEM.Jupiter.radius
+                            const spotLocal = jupiterGreatRedSpotDirectionRef
+                                .current.clone()
+                                .multiplyScalar(
+                                    jupiterRadius *
+                                        (p.greatRedSpotSurfaceOffset ?? 0.98)
+                                )
+                            focusWorldPos.copy(
+                                jupiterGroup.current.localToWorld(spotLocal)
+                            )
+                        }
+
+                        cameraTarget.current.copy(focusWorldPos)
 
                         const direction = new THREE.Vector3()
                             .subVectors(cam.position, ctrl.target)
@@ -1366,7 +1515,7 @@ export default function SolarSystemRenderer(externalProps) {
                         }
 
                         const desiredCamPos = new THREE.Vector3()
-                            .copy(worldPos)
+                            .copy(focusWorldPos)
                             .add(
                                 direction.multiplyScalar(
                                     currentDistance.current
@@ -1378,7 +1527,7 @@ export default function SolarSystemRenderer(externalProps) {
                             .copy(cam.position)
                             .normalize()
                             .multiplyScalar(20)
-                            .add(worldPos)
+                            .add(focusWorldPos)
                     } else {
                         cameraTarget.current.set(
                             p.targetStartX ?? p.jupiterOrbitDist ?? 45,
@@ -1493,7 +1642,27 @@ export default function SolarSystemRenderer(externalProps) {
                     "IO",
                 ].includes(selectedMoonRef.current)
 
-                if (!focusedJupiterChild) {
+                const isGreatRedSpotFocus =
+                    hudFeatureFocusRef.current === "jupiter-great-red-spot"
+
+                if (isGreatRedSpotFocus) {
+                    const targetJupiterRotation =
+                        getYRotationToFaceCamera({
+                            baseDirection:
+                                jupiterGreatRedSpotDirectionRef.current,
+                            object: jupiterGroup.current,
+                            camera: cam,
+                        }) ??
+                        THREE.MathUtils.degToRad(
+                            p.greatRedSpotRotationY ?? -124
+                        )
+
+                    jupiterGroup.current.rotation.y = lerpAngle(
+                        jupiterGroup.current.rotation.y,
+                        targetJupiterRotation,
+                        p.greatRedSpotTurnSpeed ?? 0.08
+                    )
+                } else if (!focusedJupiterChild) {
                     jupiterGroup.current.rotation.y +=
                         (c.rotateSpeed ?? 0.5) * 0.005
                 }
@@ -1533,7 +1702,7 @@ export default function SolarSystemRenderer(externalProps) {
                 overrides,
             })
 
-            // Apply backlit glow to planets
+            // Keep the rim lift subtle so planets do not bloom when frontlit.
             const sunPos = new THREE.Vector3()
             sunMesh.getWorldPosition(sunPos)
 
@@ -1546,7 +1715,10 @@ export default function SolarSystemRenderer(externalProps) {
                     const backlit = toCam.dot(toSun)
 
                     if (unit.body.material.emissiveIntensity !== undefined) {
-                        unit.body.material.emissiveIntensity = Math.max(0, backlit * 0.5)
+                        unit.body.material.emissiveIntensity = Math.max(
+                            0,
+                            backlit * (p.planetBacklightEmissive ?? 0.12)
+                        )
                     }
                 }
             })
@@ -1595,7 +1767,6 @@ export default function SolarSystemRenderer(externalProps) {
             if (rendererRef.current) {
                 const canvas = rendererRef.current.domElement
                 rendererRef.current.dispose()
-                rendererRef.current.forceContextLoss?.()
 
                 if (canvas && canvas.parentNode === container) {
                     container.removeChild(canvas)
@@ -1616,6 +1787,10 @@ export default function SolarSystemRenderer(externalProps) {
         setFreeFlightMode(false)
         setSelectedTarget(name)
         focusedMoonRef.current = name
+        if (name !== "Jupiter") {
+            setHudFeatureFocus(null)
+            hudFeatureFocusRef.current = null
+        }
 
         currentViewRef.current = { mode: "focus", target: name }
 
@@ -1704,7 +1879,7 @@ export default function SolarSystemRenderer(externalProps) {
             style={containerMainStyle}
             onPointerDown={() => {
                 if (
-                    (cleanNavigationMode || freeFlightMode) &&
+                    (cleanNavigationMode || freeFlightMode || ActiveOverlay) &&
                     hoveredObjectName
                 ) {
                     focusOn(hoveredObjectName)
@@ -1737,6 +1912,8 @@ export default function SolarSystemRenderer(externalProps) {
                 isJupiterContext={isJupiterContext}
                 getDisplayName={getDisplayName}
                 onFocus={focusOn}
+                hudOpen={!!ActiveOverlay || !!InteriorOverlay}
+                hoveredObjectName={hoveredObjectName}
             />
             {cleanNavigationMode && (
                 <div

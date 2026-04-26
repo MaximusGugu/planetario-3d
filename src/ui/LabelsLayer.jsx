@@ -32,13 +32,15 @@ export default function LabelsLayer({
     isJupiterContext,
     getDisplayName,
     onFocus,
+    hudOpen,
+    hoveredObjectName,
 }) {
     return labels.map((label) => {
         const isFocusedTarget = focusedMoon && label.name === selectedName
         const isJupiterChild = isJupiterChildTarget(label.name)
         const isEarthChild = label.name === "Moon"
 
-        const shouldShow =
+        const shouldShowBase =
             label.visible &&
             !isInsideJupiter &&
             !isFocusedTarget &&
@@ -46,7 +48,10 @@ export default function LabelsLayer({
             (!isEarthChild || selectedName === "Earth") &&
             !cleanNavigationMode &&
             (!cfg.hideUI || freeFlightMode) &&
-            !autoHideUI
+            (!autoHideUI || hudOpen)
+        const shouldShow =
+            shouldShowBase &&
+            (!hudOpen || hoveredObjectName === label.name)
 
         return (
             <div
