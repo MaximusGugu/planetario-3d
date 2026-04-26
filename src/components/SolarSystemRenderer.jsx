@@ -895,10 +895,11 @@ export default function SolarSystemRenderer(externalProps) {
 
                 pivot.add(moonPivot)
 
+                const earthRadius = planet.size
                 const earthMoon = makeSphere({
                     name: "Moon",
                     textureUrl: props.earthMoonTexture,
-                    radius: props.earthMoonSize ?? 0.2,
+                    radius: props.earthMoonSize ?? earthRadius * 0.2727,
                     position: [props.earthMoonDist ?? 0.8, 0, 0],
                     color: 0xaaaaaa,
                     segments: 48,
@@ -1417,10 +1418,14 @@ export default function SolarSystemRenderer(externalProps) {
                 const hudHideViewportHeight =
                     p.hudHideViewportHeight ?? p.planetViewportHeight ?? 0.7
 
-                if (focusedMoon && selectedName === focusedMoon) {
+                const activeHudTarget = focusedMoonRef.current
+
+                if (activeHudTarget && selectedName === activeHudTarget) {
                     const shouldHide =
                         selectedViewportHeight > 0 &&
-                        selectedViewportHeight <= hudHideViewportHeight
+                        selectedViewportHeight <
+                            hudHideViewportHeight -
+                                (p.hudHideViewportEpsilon ?? 0.01)
 
                     if (shouldHide) {
                         setHudFeatureFocus(null)
@@ -1429,6 +1434,14 @@ export default function SolarSystemRenderer(externalProps) {
                         focusedMoonRef.current = null
                     }
                 }
+
+                const focusModeActive =
+                    !!focusedMoonRef.current &&
+                    focusedMoonRef.current === selectedName &&
+                    selectedViewportHeight > 0 &&
+                    selectedViewportHeight >=
+                        hudHideViewportHeight -
+                            (p.hudHideViewportEpsilon ?? 0.01)
 
                 ctrl.minDistance = p.minZoom || 0.05
                 ctrl.maxDistance = p.maxZoomLimit || 1000
@@ -1717,9 +1730,18 @@ export default function SolarSystemRenderer(externalProps) {
             const sceneSunMultiplier = isRealScaleScene ? 0.04 : 1
             const sceneBloomMultiplier = isRealScaleScene ? 0.04 : 1
 
-            sunLight.intensity = (c.sunIntensity ?? 8) * sceneSunMultiplier
-            directionalLight.intensity = 0
-            ambient.intensity = c.ambientIntensity ?? 0.1
+            const focusLightMultiplier =
+                focusModeActive && !isRealScaleScene ? 1 : 0
+
+            sunLight.intensity =
+                (c.sunIntensity ?? 8) *
+                sceneSunMultiplier *
+                (focusLightMultiplier ? (p.focusSunMultiplier ?? 0.25) : 1)
+            directionalLight.intensity =
+                (p.focusLightIntensity ?? 1.6) * focusLightMultiplier
+            ambient.intensity = focusLightMultiplier
+                ? (p.focusAmbientIntensity ?? 0.08)
+                : (c.ambientIntensity ?? 0.1)
             bloomPass.strength =
                 (c.bloomStrength ?? p.bloomStrength ?? 0.55) *
                 sceneBloomMultiplier
