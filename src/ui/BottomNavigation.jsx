@@ -1,4 +1,4 @@
-const bottomHUDBarStyle = {
+export const bottomHUDBarStyle = {
     position: "absolute",
     bottom: 60,
     left: "50%",

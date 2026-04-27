@@ -725,3 +725,5 @@ export default function JupiterHUD({
         </HelmetHUD>
     )
 }
+
+//hud jupiter animações

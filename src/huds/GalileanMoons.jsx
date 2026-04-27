@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Frame } from "./HelmetHUD.jsx"
+import { bottomHUDBarStyle } from "../ui/bottomNavigation.jsx" // ajuste o path
 
 export const GALILEAN_OBSERVATIONS = [
     {
@@ -83,10 +84,10 @@ const buildGalileanScene = (observation, index) => ({
     hideNavigation: true,
     hideLabels: true,
     camera: {
-        position: [0, 8, 60],
-        target: [0, 0, 0],
-        distance: 60,
-    },
+    position: [0, 5, 36],
+    target: [0, 0, 0],
+    distance: 25,
+},
     objects: [
         {
             objectName: "Jupiter",
@@ -343,7 +344,7 @@ export default function GalileanMoons({
                 </p>
             </div>
 
-            <div style={controlsStyle} aria-label="Alternar observacoes">
+            <div style={bottomHUDBarStyle} aria-label="Alternar observacoes">
                 <button
                     type="button"
                     style={roundButtonStyle}

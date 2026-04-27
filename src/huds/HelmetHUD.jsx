@@ -25,23 +25,23 @@ const frameLineStyle = {
     background: "rgba(255,255,255,0.9)",
     boxShadow:
         "0 0 6px rgba(255,255,255,0.7), 0 0 16px rgba(255,255,255,0.2)",
+    animation: "hudLinePulse 4.5s ease-in-out infinite",
 }
-
-const contentInset = "clamp(28px, 3vh, 44px)"
 
 const contentStyle = {
     position: "absolute",
     top: "7.5%",
     left: "3%",
     right: "3%",
-    width: "90%",
+    width: "94%",
     height: "85%",
     display: "grid",
-    gridTemplateColumns: "minmax(240px, 34vw) minmax(220px, 28vw)",
+    gridTemplateColumns: "minmax(360px, 42vw) minmax(220px, 28vw)",
     alignItems: "stretch",
     justifyContent: "space-between",
     gap: 32,
-    padding: `${contentInset} 1vw ${contentInset} ${contentInset}`,
+    padding: "4vh 1vw 0 1vw",
+    animation: "hudContentIn 800ms ease-out both",
 }
 
 const titleStyle = {
@@ -52,10 +52,11 @@ const titleStyle = {
     lineHeight: 0.86,
     color: "#df8845",
     textShadow: "0 0 24px rgba(223,136,69,0.22)",
+    animation: "hudTitleGlow 5s ease-in-out infinite",
 }
 
 const bodyStyle = {
-    maxWidth: 500,
+    maxWidth: 620,
     fontSize: "clamp(12px, 0.82vw, 14px)",
     lineHeight: 1.48,
     fontWeight: 700,
@@ -80,8 +81,9 @@ const accordionPanelStyle = {
     justifySelf: "end",
     width: "min(460px, 30vw)",
     minWidth: 280,
-    padding: "16px 8px 0 22px",
+    padding: "16px 56px 0 22px",
     marginRight: 0,
+    animation: "hudAccordionIn 900ms ease-out both",
 }
 
 const accordionButtonStyle = {
@@ -157,83 +159,18 @@ const AccordionIcon = ({ isOpen }) => (
     </svg>
 )
 
-const zoomControlStyle = {
+const longTicksStyle = {
     position: "absolute",
-    right: "2.85vw",
+    right: "3.4vw",
     top: "50%",
     transform: "translateY(-50%)",
-    width: 64,
-    height: "58vh",
-    minHeight: 360,
-    pointerEvents: "none",
-    color: "rgba(255,255,255,0.82)",
-    filter: "drop-shadow(0 0 10px rgba(255,255,255,0.35))",
-}
-
-const zoomRailStyle = {
-    position: "absolute",
-    right: 24,
-    top: 42,
-    bottom: 42,
-    width: 1,
+    width: 10,
+    height: "60vh",
+    opacity: 0.5,
     background:
-        "linear-gradient(to bottom, transparent, rgba(255,255,255,0.58) 12%, rgba(255,255,255,0.58) 88%, transparent)",
-}
-
-const zoomTicksStyle = {
-    position: "absolute",
-    inset: "42px 0",
-    background:
-        "repeating-linear-gradient(to bottom, transparent 0 10px, rgba(255,255,255,0.26) 11px 12px, transparent 13px 22px)",
-    WebkitMaskImage:
-        "linear-gradient(to bottom, transparent, black 9%, black 91%, transparent)",
-    maskImage:
-        "linear-gradient(to bottom, transparent, black 9%, black 91%, transparent)",
-}
-
-const zoomThumbStyle = {
-    position: "absolute",
-    right: 11,
-    top: "42%",
-    width: 28,
-    height: 2,
-    borderRadius: 999,
-    background: "#df8845",
-    boxShadow:
-        "0 0 10px rgba(223,136,69,0.9), 0 0 24px rgba(223,136,69,0.28)",
-}
-
-const zoomReadoutStyle = {
-    position: "absolute",
-    right: 40,
-    top: "42%",
-    transform: "translateY(-50%) rotate(-90deg)",
-    transformOrigin: "right center",
-    fontFamily: "'General Sans', sans-serif",
-    fontSize: 9,
-    fontWeight: 800,
-    letterSpacing: "0.18em",
-    color: "rgba(223,136,69,0.92)",
-    whiteSpace: "nowrap",
-}
-
-const zoomButtonStyle = {
-    position: "absolute",
-    right: 12,
-    width: 24,
-    height: 24,
-    display: "grid",
-    placeItems: "center",
-    border: "1px solid rgba(255,255,255,0.32)",
-    borderRadius: "50%",
-    background: "rgba(5,7,12,0.44)",
-    color: "rgba(255,255,255,0.86)",
-    fontFamily: "'General Sans', sans-serif",
-    fontSize: 14,
-    fontWeight: 800,
-    lineHeight: 1,
-    cursor: "pointer",
-    pointerEvents: "auto",
+        "repeating-linear-gradient(to bottom, transparent 0 9px, rgba(255,255,255,0.4) 10px 11px)",
+    filter: "drop-shadow(0 0 6px rgba(255,255,255,0.45))",
+    animation: "hudTicksScan 7s linear infinite",
 }
 
 const cornerBlockStyle = {
@@ -243,86 +180,209 @@ const cornerBlockStyle = {
     background: "transparent",
     border: "1px solid rgba(255,255,255,0.8)",
     boxSizing: "border-box",
+    animation: "hudCornerGlow 3.5s ease-in-out infinite",
 }
 
-const ZoomControl = ({ onZoomDelta }) => (
-    <div style={zoomControlStyle} aria-label="Controle de zoom do HUD">
-        <button
-            type="button"
-            aria-label="Aproximar"
-            style={{ ...zoomButtonStyle, top: 0 }}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-                event.stopPropagation()
-                onZoomDelta?.(1)
-            }}
-        >
-            +
-        </button>
-        <div style={zoomTicksStyle} />
-        <div style={zoomRailStyle} />
-        <div className="hud-zoom-thumb" style={zoomThumbStyle} />
-        <div className="hud-zoom-readout" style={zoomReadoutStyle}>
-            ZOOM 68%
-        </div>
-        <button
-            type="button"
-            aria-label="Afastar"
-            style={{ ...zoomButtonStyle, bottom: 0 }}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-                event.stopPropagation()
-                onZoomDelta?.(-1)
-            }}
-        >
-            −
-        </button>
-    </div>
+const sideButtonStyle = {
+    position: "absolute",
+    right: "calc(3vw + 1px)",
+    width: 20,
+    height: 20,
+    borderRadius: "50%",
+    border: "1px solid rgba(255,255,255,0.65)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 12,
+    fontWeight: 800,
+    color: "rgba(255,255,255,0.9)",
+    textShadow: "0 0 8px rgba(255,255,255,0.65)",
+    boxShadow: "0 0 10px rgba(255,255,255,0.25)",
+    pointerEvents: "none",
+    animation: "hudCornerGlow 3.5s ease-in-out infinite",
+}
+
+const sweepLightStyle = {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "45%",
+    height: "100%",
+    pointerEvents: "none",
+    background:
+        "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.02) 35%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0.02) 65%, transparent 100%)",
+    mixBlendMode: "screen",
+    filter: "blur(10px)",
+    animation: "hudSweepLight 6s ease-in-out infinite",
+    zIndex: 2,
+}
+
+const GridLayer = () => (
+    <div
+        style={{
+            position: "absolute",
+            inset: 0,
+            opacity: 0.25,
+            backgroundImage:
+                "radial-gradient(rgba(255,255,255,0.6) 1px, transparent 1px)",
+            backgroundSize: "42px 42px",
+            WebkitMaskImage:
+                "radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0,0,0,0.3) 60%, black 100%)",
+            maskImage:
+                "radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0,0,0,0.3) 60%, black 100%)",
+            animation: "hudGridDrift 18s linear infinite",
+        }}
+    />
 )
 
-export const Frame = ({ showGrid = true }) => (
+export const Frame = () => (
     <div style={frameStyle} aria-hidden="true">
-        {/* GRID COM FADE NAS BORDAS */}
-        {showGrid && (
-            <div
-                style={{
-                    position: "absolute",
-                    inset: 0,
-                    opacity: 0.25,
-                    backgroundImage:
-                        "radial-gradient(rgba(255,255,255,0.6) 1px, transparent 1px)",
-                    backgroundSize: "42px 42px",
-                    WebkitMaskImage:
-                        "radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0,0,0,0.3) 60%, black 100%)",
-                    maskImage:
-                        "radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0,0,0,0.3) 60%, black 100%)",
-                }}
-            />
-        )}
+        <GridLayer />
 
-        {/* TOPO COM DESNÍVEL */}
-        <div style={{ ...frameLineStyle, top: 0, left: 0, width: "calc(50% - 149px)", height: 1 }} />
-        <div style={{ ...frameLineStyle, top: -12, left: "calc(50% - 153px)", width: 22, height: 1, transform: "rotate(-35deg)", transformOrigin: "right center" }} />
-        <div style={{ ...frameLineStyle, top: -10, left: "calc(50% - 135px)", width: 270, height: 1 }} />
-        <div style={{ ...frameLineStyle, top: -12, right: "calc(50% - 153px)", width: 22, height: 1, transform: "rotate(35deg)", transformOrigin: "left center" }} />
-        <div style={{ ...frameLineStyle, top: 0, right: 0, width: "calc(50% - 149px)", height: 1 }} />
+        <div
+            style={{
+                ...frameLineStyle,
+                top: 0,
+                left: 0,
+                width: "calc(50% - 149px)",
+                height: 1,
+            }}
+        />
+        <div
+            style={{
+                ...frameLineStyle,
+                top: -12,
+                left: "calc(50% - 153px)",
+                width: 22,
+                height: 1,
+                transform: "rotate(-35deg)",
+                transformOrigin: "right center",
+            }}
+        />
+        <div
+            style={{
+                ...frameLineStyle,
+                top: -10,
+                left: "calc(50% - 135px)",
+                width: 270,
+                height: 1,
+            }}
+        />
+        <div
+            style={{
+                ...frameLineStyle,
+                top: -12,
+                right: "calc(50% - 153px)",
+                width: 22,
+                height: 1,
+                transform: "rotate(35deg)",
+                transformOrigin: "left center",
+            }}
+        />
+        <div
+            style={{
+                ...frameLineStyle,
+                top: 0,
+                right: 0,
+                width: "calc(50% - 149px)",
+                height: 1,
+            }}
+        />
 
-        {/* LATERAIS */}
-        <div style={{ ...frameLineStyle, left: 0, top: 0, bottom: 0, width: 1 }} />
-        <div style={{ ...frameLineStyle, right: 0, top: 0, bottom: 0, width: 1 }} />
+        <div
+            style={{
+                ...frameLineStyle,
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 1,
+            }}
+        />
+        <div
+            style={{
+                ...frameLineStyle,
+                right: 0,
+                top: 0,
+                bottom: 0,
+                width: 1,
+            }}
+        />
 
-        {/* BASE COM DESNÍVEL */}
-        <div style={{ ...frameLineStyle, bottom: 0, left: 0, width: "calc(50% - 149px)", height: 1 }} />
-        <div style={{ ...frameLineStyle, bottom: -12, left: "calc(50% - 153px)", width: 22, height: 1, transform: "rotate(35deg)", transformOrigin: "right center" }} />
-        <div style={{ ...frameLineStyle, bottom: -10, left: "calc(50% - 135px)", width: 270, height: 1 }} />
-        <div style={{ ...frameLineStyle, bottom: -12, right: "calc(50% - 153px)", width: 22, height: 1, transform: "rotate(-35deg)", transformOrigin: "left center" }} />
-        <div style={{ ...frameLineStyle, bottom: 0, right: 0, width: "calc(50% - 149px)", height: 1 }} />
+        <div
+            style={{
+                ...frameLineStyle,
+                bottom: 0,
+                left: 0,
+                width: "calc(50% - 149px)",
+                height: 1,
+            }}
+        />
+        <div
+            style={{
+                ...frameLineStyle,
+                bottom: -12,
+                left: "calc(50% - 153px)",
+                width: 22,
+                height: 1,
+                transform: "rotate(35deg)",
+                transformOrigin: "right center",
+            }}
+        />
+        <div
+            style={{
+                ...frameLineStyle,
+                bottom: -10,
+                left: "calc(50% - 135px)",
+                width: 270,
+                height: 1,
+            }}
+        />
+        <div
+            style={{
+                ...frameLineStyle,
+                bottom: -12,
+                right: "calc(50% - 153px)",
+                width: 22,
+                height: 1,
+                transform: "rotate(-35deg)",
+                transformOrigin: "left center",
+            }}
+        />
+        <div
+            style={{
+                ...frameLineStyle,
+                bottom: 0,
+                right: 0,
+                width: "calc(50% - 149px)",
+                height: 1,
+            }}
+        />
 
-        {/* BARRINHAS CENTRAIS */}
-        <div style={{ ...frameLineStyle, top: -5, left: "50%", width: 64, height: 4, borderRadius: 999, transform: "translateX(-50%)" }} />
-        <div style={{ ...frameLineStyle, bottom: -12, left: "50%", width: 64, height: 4, borderRadius: 999, transform: "translateX(-50%)" }} />
+        <div
+            style={{
+                ...frameLineStyle,
+                top: -5,
+                left: "50%",
+                width: 64,
+                height: 4,
+                borderRadius: 999,
+                transform: "translateX(-50%)",
+                animation: "hudCenterBlink 3s ease-in-out infinite",
+            }}
+        />
+        <div
+            style={{
+                ...frameLineStyle,
+                bottom: -12,
+                left: "50%",
+                width: 64,
+                height: 4,
+                borderRadius: 999,
+                transform: "translateX(-50%)",
+                animation: "hudCenterBlink 3s ease-in-out infinite 1.5s",
+            }}
+        />
 
-        {/* RETÂNGULOS DOS CANTOS */}
         <div style={{ ...cornerBlockStyle, top: 0, left: 0 }} />
         <div style={{ ...cornerBlockStyle, top: 0, right: 0 }} />
         <div style={{ ...cornerBlockStyle, bottom: 0, left: 0 }} />
@@ -338,41 +398,41 @@ export function HelmetHUD({
     onAccordionChange,
     titleComponent,
     overlayComponent,
-    onZoomDelta,
-    contentStyle: contentStyleOverride,
-    leftArticleStyle: leftArticleStyleOverride,
-    bodyStyle: bodyStyleOverride,
-    renderAccordionContent,
+    renderAccordionContent
 }) {
     const [openItem, setOpenItem] = useState(-1)
 
     return (
         <section style={hudRootStyle} aria-label={`${title || "Planet"} HUD`}>
+            <div style={sweepLightStyle} />
+
             <Frame />
-            <ZoomControl onZoomDelta={onZoomDelta} />
+
+            <div style={longTicksStyle} />
+
+            <div style={{ ...sideButtonStyle, top: "calc(20% - 28px)" }}>
+                +
+            </div>
+
+            <div
+                style={{
+                    ...sideButtonStyle,
+                    top: "calc(80% + 8px)",
+                    animation: "hudCornerGlow 3.5s ease-in-out infinite 1.4s",
+                }}
+            >
+                -
+            </div>
 
             {content && (
-                <div
-                    style={{
-                        ...contentStyle,
-                        ...(contentStyleOverride || {}),
-                    }}
-                >
-                    <article
-                        style={{
-                            ...leftArticleStyle,
-                            ...(leftArticleStyleOverride || {}),
-                        }}
-                    >
-                        {titleComponent ? titleComponent : <h1 style={titleStyle}>{title}</h1>}
-                        <div
-                            style={{
-                                ...bodyStyle,
-                                ...(bodyStyleOverride || {}),
-                            }}
-                        >
-                            {children}
-                        </div>
+                <div style={contentStyle}>
+                    <article style={leftArticleStyle}>
+                        {titleComponent ? (
+                            titleComponent
+                        ) : (
+                            <h1 style={titleStyle}>{title}</h1>
+                        )}
+                        <div style={bodyStyle}>{children}</div>
                     </article>
 
                     <aside
@@ -393,61 +453,176 @@ export function HelmetHUD({
                                                 : index
                                             setOpenItem(nextIndex)
                                             onAccordionChange?.(
-                                                nextIndex === -1
-                                                    ? null
-                                                    : item
+                                                nextIndex === -1 ? null : item
                                             )
                                         }}
                                     >
                                         <span>{item.title}</span>
                                         <AccordionIcon isOpen={isOpen} />
                                     </button>
+
                                     {isOpen && (
-                                        <div>
-                                            <TextType
-                                            text={item.content}
-                                            typingSpeed={20}
-                                            pauseDuration={800}
-                                            loop={false}
-                                            showCursor={true}
-                                            cursorCharacter="▌"
-                                            deletingSpeed={45}
-                                            className="hud-accordion-typing"
-                                            style={{
-                                                ...accordionTextStyle,
-                                                display: 'block',
-                                                margin: '12px 0 18px',
-                                                fontWeight: 650,
-                                            }}
-                                            />
-                                            {renderAccordionContent?.(item)}
-                                        </div>
-                                    )}
+    <>
+        <TextType
+            text={item.content}
+            typingSpeed={20}
+            pauseDuration={800}
+            loop={false}
+            showCursor={true}
+            cursorCharacter="▌"
+            deletingSpeed={45}
+            className="hud-accordion-typing"
+            style={{
+                ...accordionTextStyle,
+                display: "block",
+                margin: "12px 0 18px",
+                fontWeight: 650,
+            }}
+        />
+
+        {renderAccordionContent?.(item)}
+    </>
+)}
                                 </div>
                             )
                         })}
                     </aside>
                 </div>
             )}
+
             {overlayComponent}
+
             <style>{`
-                @keyframes hudFramePulse {
-                    0%, 100% { opacity: 0.72; }
-                    50% { opacity: 1; }
+                @keyframes hudLinePulse {
+                    0%, 100% {
+                        opacity: 0.62;
+                        filter: brightness(0.9);
+                    }
+                    50% {
+                        opacity: 1;
+                        filter: brightness(1.28);
+                    }
                 }
-                @keyframes hudZoomScan {
-                    0%, 100% { transform: translateY(-34px); opacity: 0.68; }
-                    50% { transform: translateY(34px); opacity: 1; }
+
+                @keyframes hudTicksScan {
+                    0% {
+                        background-position-y: 0px;
+                        opacity: 0.32;
+                    }
+                    50% {
+                        opacity: 0.62;
+                    }
+                    100% {
+                        background-position-y: 42px;
+                        opacity: 0.32;
+                    }
                 }
-                @keyframes hudZoomReadout {
-                    0%, 100% { opacity: 0.58; }
-                    50% { opacity: 1; }
+
+                @keyframes hudGridDrift {
+                    0% {
+                        background-position: 0 0;
+                        opacity: 0.14;
+                    }
+                    50% {
+                        opacity: 0.28;
+                    }
+                    100% {
+                        background-position: 42px 42px;
+                        opacity: 0.14;
+                    }
                 }
-                .hud-zoom-thumb {
-                    animation: hudZoomScan 3.8s ease-in-out infinite;
+
+                @keyframes hudCenterBlink {
+                    0%, 100% {
+                        opacity: 0.45;
+                        filter: brightness(0.9);
+                    }
+                    50% {
+                        opacity: 1;
+                        filter: brightness(1.8);
+                    }
                 }
-                .hud-zoom-readout {
-                    animation: hudZoomReadout 1.8s ease-in-out infinite;
+
+                @keyframes hudCornerGlow {
+                    0%, 100% {
+                        opacity: 0.55;
+                        filter: brightness(0.85) drop-shadow(0 0 2px rgba(255,255,255,0.22));
+                    }
+                    50% {
+                        opacity: 1;
+                        filter: brightness(1.35) drop-shadow(0 0 10px rgba(255,255,255,0.75));
+                    }
+                }
+
+                @keyframes hudSweepLight {
+                    0% {
+                        transform: translateX(-120%) skewX(-18deg);
+                        opacity: 0;
+                    }
+                    15% {
+                        opacity: 0.75;
+                    }
+                    45% {
+                        opacity: 0.25;
+                    }
+                    100% {
+                        transform: translateX(240%) skewX(-18deg);
+                        opacity: 0;
+                    }
+                }
+
+                @keyframes hudContentIn {
+                    0% {
+                        opacity: 0;
+                        transform: translateY(14px);
+                        filter: blur(5px);
+                    }
+                    100% {
+                        opacity: 1;
+                        transform: translateY(0);
+                        filter: blur(0);
+                    }
+                }
+
+                @keyframes hudAccordionIn {
+                    0% {
+                        opacity: 0;
+                        transform: translateX(18px);
+                        filter: blur(4px);
+                    }
+                    100% {
+                        opacity: 1;
+                        transform: translateX(0);
+                        filter: blur(0);
+                    }
+                }
+
+                @keyframes hudTitleGlow {
+                    0%, 100% {
+                        text-shadow: 0 0 18px rgba(223,136,69,0.16);
+                    }
+                    50% {
+                        text-shadow:
+                            0 0 24px rgba(223,136,69,0.32),
+                            0 0 46px rgba(223,136,69,0.12);
+                    }
+                }
+
+                .hud-accordion-typing {
+                    animation: hudTextGlow 3s ease-in-out infinite;
+                }
+
+                @keyframes hudTextGlow {
+                    0%, 100% {
+                        opacity: 0.86;
+                        text-shadow: 0 2px 12px rgba(0,0,0,0.9);
+                    }
+                    50% {
+                        opacity: 1;
+                        text-shadow:
+                            0 2px 12px rgba(0,0,0,0.9),
+                            0 0 10px rgba(255,255,255,0.22);
+                    }
                 }
             `}</style>
         </section>
