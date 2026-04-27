@@ -223,17 +223,44 @@ export default function SolarSystemRenderer(externalProps) {
         setSelectedName(name)
     }
 
-    const setFocusLayerObject = (object) => {
-        if (focusLayerObjectRef.current === object) return
+    const FOCUSED_LAYER = 3;
+
+    const setLayerRecursive = (object, layer) => {
+        if (!object) return;
+        object.traverse((child) => {
+            if (layer === FOCUSED_LAYER) {
+                if ((child.layers.mask & 1) !== 0) {
+                    child.layers.disable(0);
+                    child.layers.enable(FOCUSED_LAYER);
+                    child.userData.movedToLayer3 = true;
+                }
+            } else {
+                if (child.userData.movedToLayer3) {
+                    child.layers.disable(FOCUSED_LAYER);
+                    child.layers.enable(0);
+                    child.userData.movedToLayer3 = false;
+                }
+            }
+        });
+    }
+
+    const setFocusLayerObject = (unit) => {
+        if (focusLayerObjectRef.current === unit) return
 
         if (focusLayerObjectRef.current) {
-            focusLayerObjectRef.current.userData.focused = false
+            if (focusLayerObjectRef.current.body) {
+                focusLayerObjectRef.current.body.userData.focused = false
+            }
+            setLayerRecursive(focusLayerObjectRef.current.root, 0)
         }
 
-        focusLayerObjectRef.current = object || null
+        focusLayerObjectRef.current = unit || null
 
         if (focusLayerObjectRef.current) {
-            focusLayerObjectRef.current.userData.focused = true
+            if (focusLayerObjectRef.current.body) {
+                focusLayerObjectRef.current.body.userData.focused = true
+            }
+            setLayerRecursive(focusLayerObjectRef.current.root, FOCUSED_LAYER)
         }
     }
 
@@ -1277,6 +1304,7 @@ export default function SolarSystemRenderer(externalProps) {
             config: props,
         })
         camera.layers.enable(ASTEROID_LAYER)
+        camera.layers.enable(3)
         cameraRef.current = camera
 
         const controls = createControls({
@@ -1463,6 +1491,8 @@ export default function SolarSystemRenderer(externalProps) {
         const {
             sunLight,
             directionalLight,
+            focusedSunLight,
+            focusedDirectionalLight,
             focusLight,
             asteroidSunLight,
             ambient,
@@ -2563,9 +2593,12 @@ export default function SolarSystemRenderer(externalProps) {
                     sunPosLerp.current.lerp(targetSunPos, 0.05)
                     directionalLight.position.copy(sunWorldPos)
                     directionalLight.target.position.copy(cameraTarget.current)
+                    focusedDirectionalLight.position.copy(sunWorldPos)
+                    focusedDirectionalLight.target.position.copy(cameraTarget.current)
                     focusLight.position.copy(sunPosLerp.current)
                     focusLight.target.position.copy(cameraTarget.current)
                     scene.add(directionalLight.target)
+                    scene.add(focusedDirectionalLight.target)
                     scene.add(focusLight.target)
 
                     if (activeHudCameraLock) {
@@ -2852,35 +2885,36 @@ export default function SolarSystemRenderer(externalProps) {
                     }
                 }
             )
-            const isolatedFocusObject =
-                landingExperienceActive && selectedMoonRef.current
-                    ? getSceneUnit(selectedMoonRef.current)?.body
-                    : null
-            setFocusLayerObject(isolatedFocusObject)
-            Object.values(sceneUnitsRef.current).forEach((unit) => {
-                const body = unit?.body
-                if (!body || body === isolatedFocusObject) return
-                body.userData.focused = false
-            })
-            sunFlareLight.visible = !isRealScaleScene && visualSunBlend > 0.02
+            const currentTargetName = focusedMoonRef.current || selectedMoonRef.current
+            const focusUnit = (focusLightBlendRef.current > 0.001 && currentTargetName) ? getSceneUnit(currentTargetName) : null
+            setFocusLayerObject(focusUnit)
+
+            sunFlareLight.visible = !isRealScaleScene && sceneSunMultiplier > 0.02
             sunFlareLight.intensity = 0
             if (sunFlareSpriteRef.current) {
                 sunFlareSpriteRef.current.visible =
-                    !isRealScaleScene && visualSunBlend > 0.02
-                sunFlareSpriteRef.current.material.opacity = visualSunBlend
+                    !isRealScaleScene && sceneSunMultiplier > 0.02
+                sunFlareSpriteRef.current.material.opacity = sceneSunMultiplier
             }
-            sunGlow.visible = !isRealScaleScene && visualSunBlend > 0.02
+            sunGlow.visible = !isRealScaleScene && sceneSunMultiplier > 0.02
             sunGlow.material.opacity =
-                (p.sunGlowOpacity ?? 0.18) * visualSunBlend
+                (p.sunGlowOpacity ?? 0.18) * sceneSunMultiplier
 
-            sunLight.intensity =
-                (p.sunFillIntensity ?? 0) * sceneSunMultiplier
-            directionalLight.intensity =
+            const baseSunIntensity =
                 (isRealScaleScene
                     ? (p.realScaleSunIntensity ?? 1.65)
                     : (c.sunIntensity ?? 8)) * sceneSunMultiplier
+
+            // Use radial point light for background planets to avoid spotlight illusion
+            sunLight.intensity = baseSunIntensity
+            directionalLight.intensity = 0
+
+            focusedSunLight.intensity = baseSunIntensity * sunBlend
+            focusedDirectionalLight.intensity = baseSunIntensity * sunBlend
+
+            const baseFocusIntensity = (p.focusLightIntensity ?? 1.6) + (c.sunIntensity ?? 8)
             focusLight.intensity =
-                (p.focusLightIntensity ?? 1.6) *
+                baseFocusIntensity *
                 focusLightBlend *
                 sceneSunMultiplier
             asteroidSunLight.intensity = 0

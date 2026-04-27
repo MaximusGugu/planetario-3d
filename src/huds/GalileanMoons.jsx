@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Frame } from "./HelmetHUD.jsx"
-import { bottomHUDBarStyle } from "../ui/bottomNavigation.jsx" // ajuste o path
+import { bottomHUDBarStyle } from "../ui/BottomNavigation.jsx"
 
 export const GALILEAN_OBSERVATIONS = [
     {

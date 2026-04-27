@@ -110,6 +110,8 @@ export const createSunLighting = ({
     sunFlareSprite.frustumCulled = false
     sunMesh.add(sunFlareSprite)
 
+    const FOCUSED_LAYER = 3
+
     const sunLight = new THREE.PointLight(
         0xffffff,
         config.sunIntensity ?? 14,
@@ -123,7 +125,6 @@ export const createSunLighting = ({
         0xffffff,
         config.sunIntensity ?? 8
     )
-
     directionalLight.position.set(0, 0, 0)
     directionalLight.castShadow = true
     directionalLight.shadow.mapSize.width = 2048
@@ -135,6 +136,33 @@ export const createSunLighting = ({
     directionalLight.shadow.camera.top = 20
     directionalLight.shadow.camera.bottom = -20
     scene.add(directionalLight)
+
+    const focusedSunLight = new THREE.PointLight(
+        0xffffff,
+        config.sunIntensity ?? 14,
+        0
+    )
+    focusedSunLight.decay = 0
+    focusedSunLight.position.set(0, 0, 0)
+    focusedSunLight.layers.set(FOCUSED_LAYER)
+    solarSystemGroup.add(focusedSunLight)
+
+    const focusedDirectionalLight = new THREE.DirectionalLight(
+        0xffffff,
+        config.sunIntensity ?? 8
+    )
+    focusedDirectionalLight.position.set(0, 0, 0)
+    focusedDirectionalLight.castShadow = true
+    focusedDirectionalLight.shadow.mapSize.width = 2048
+    focusedDirectionalLight.shadow.mapSize.height = 2048
+    focusedDirectionalLight.shadow.camera.near = 0.1
+    focusedDirectionalLight.shadow.camera.far = 200
+    focusedDirectionalLight.shadow.camera.left = -20
+    focusedDirectionalLight.shadow.camera.right = 20
+    focusedDirectionalLight.shadow.camera.top = 20
+    focusedDirectionalLight.shadow.camera.bottom = -20
+    focusedDirectionalLight.layers.set(FOCUSED_LAYER)
+    scene.add(focusedDirectionalLight)
 
     const focusLight = new THREE.DirectionalLight(
         0xffffff,
@@ -149,6 +177,7 @@ export const createSunLighting = ({
     focusLight.shadow.camera.right = 20
     focusLight.shadow.camera.top = 20
     focusLight.shadow.camera.bottom = -20
+    focusLight.layers.set(FOCUSED_LAYER)
     scene.add(focusLight)
 
     const asteroidSunLight = new THREE.DirectionalLight(
@@ -166,11 +195,14 @@ export const createSunLighting = ({
         config.ambientIntensity ?? 0
     )
     ambient.layers.enable(2)
+    ambient.layers.enable(FOCUSED_LAYER)
     scene.add(ambient)
 
     return {
         sunLight,
         directionalLight,
+        focusedSunLight,
+        focusedDirectionalLight,
         focusLight,
         asteroidSunLight,
         ambient,
