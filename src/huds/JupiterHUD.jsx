@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { HelmetHUD, hudTitleStyle } from "./HelmetHUD.jsx"
 import GalileanMoons from "./GalileanMoons.jsx"
 import TextType from "../components/TextType.jsx"
@@ -83,6 +83,117 @@ const accordionItems = [
             "Júpiter não tem superfície sólida definida. A descida atravessaria nuvens, gases comprimidos e camadas de hidrogênio sob pressão extrema, até regiões onde a matéria se comporta de forma incomum.",
     },
 ]
+
+const jupiterInteractions = {
+    greatRedSpot: {
+        id: "jupiter-great-red-spot",
+        type: "focus",
+        trigger: "accordion",
+        bodyName: "Jupiter",
+        overlay: "jupiter-great-red-spot",
+        target: {
+            body: "Jupiter",
+            frame: "bodyLocal",
+            textureU: 0.365,
+            textureV: 0.625,
+            surfaceOffset: 0.98,
+        },
+        camera: {
+            body: "Jupiter",
+            frame: "surfaceNormal",
+            viewportHeight: 1.38,
+            lockPosition: true,
+            allowLookAround: true,
+            allowZoom: false,
+            allowPan: false,
+        },
+        motion: {
+            rotationY: -124,
+            turnSpeed: 0.08,
+        },
+    },
+    galileanMoons: {
+        id: "jupiter-galilean-moons",
+        type: "featureSceneSet",
+        trigger: "hudButton",
+        scene: {
+            camera: {
+                position: [0, 5, 36],
+                target: [0, 0, 0],
+                distance: 25,
+            },
+            planetObjectName: "Jupiter",
+            moonObjectNames: {
+                IO: "IO",
+                Europa: "Europa",
+                Ganymede: "Ganymede",
+                Callisto: "Callisto",
+            },
+            moonScales: {
+                IO: 6,
+                Europa: 5.5,
+                Ganymede: 7.5,
+                Callisto: 7,
+            },
+        },
+        observations: [
+            {
+                label: "7 Jan 1610",
+                moons: [
+                    { name: "IO", x: -6 },
+                    { name: "Europa", x: -6 },
+                    { name: "Ganymede", x: 10 },
+                    { name: "Callisto", x: 22 },
+                ],
+            },
+            {
+                label: "8 Jan 1610",
+                moons: [
+                    { name: "IO", x: -8 },
+                    { name: "Europa", x: -3 },
+                    { name: "Ganymede", x: 12 },
+                    { name: "Callisto", x: 26 },
+                ],
+            },
+            {
+                label: "10 Jan 1610",
+                moons: [
+                    { name: "IO", x: 2 },
+                    { name: "Europa", x: -10 },
+                    { name: "Ganymede", x: 14 },
+                    { name: "Callisto", x: 24 },
+                ],
+            },
+            {
+                label: "12 Jan 1610",
+                moons: [
+                    { name: "IO", x: 6 },
+                    { name: "Europa", x: -6 },
+                    { name: "Ganymede", x: -16 },
+                    { name: "Callisto", x: 25 },
+                ],
+            },
+            {
+                label: "15 Jan 1610",
+                moons: [
+                    { name: "IO", x: -4 },
+                    { name: "Europa", x: 8 },
+                    { name: "Ganymede", x: 16 },
+                    { name: "Callisto", x: -24 },
+                ],
+            },
+            {
+                label: "17 Jan 1610",
+                moons: [
+                    { name: "IO", x: 4 },
+                    { name: "Europa", x: -9 },
+                    { name: "Ganymede", x: 15 },
+                    { name: "Callisto", x: 26 },
+                ],
+            },
+        ],
+    },
+}
 
 const factChips = [
     ["TIPO", "Gigante gasoso"],
@@ -663,23 +774,39 @@ const JupiterFeatureOverlay = ({ feature }) => {
 }
 
 export default function JupiterHUD({
+    onInteraction,
     onFeatureFocus,
     onZoomDelta,
     onStartFeatureScene,
     onUpdateFeatureScene,
     onStopFeatureScene,
+    accordionResetKey,
 }) {
     const [activeFeature, setActiveFeature] = useState("jupiter-great-red-spot")
     const [showGalileanMoons, setShowGalileanMoons] = useState(false)
 
+    useEffect(() => {
+        setActiveFeature(null)
+    }, [accordionResetKey])
+
     const handleFeatureChange = (feature) => {
         setActiveFeature(feature)
-        onFeatureFocus?.(feature)
+        const interaction =
+            feature === "jupiter-great-red-spot"
+                ? jupiterInteractions.greatRedSpot
+                : null
+        if (onInteraction) {
+            onInteraction(interaction)
+        } else {
+            onFeatureFocus?.(interaction ?? null)
+        }
     }
 
     if (showGalileanMoons) {
         return (
             <GalileanMoons
+                observations={jupiterInteractions.galileanMoons.observations}
+                scene={jupiterInteractions.galileanMoons.scene}
                 onClose={() => setShowGalileanMoons(false)}
                 onStartFeatureScene={onStartFeatureScene}
                 onUpdateFeatureScene={onUpdateFeatureScene}
@@ -692,6 +819,7 @@ export default function JupiterHUD({
         <HelmetHUD
             title="Júpiter"
             accordionItems={accordionItems}
+            accordionResetKey={accordionResetKey}
             titleComponent={<JupiterTitle />}
             overlayComponent={<JupiterFeatureOverlay feature={activeFeature} />}
             onZoomDelta={onZoomDelta}
@@ -715,10 +843,16 @@ export default function JupiterHUD({
             }
             onAccordionChange={(item) => {
                 const nextFeature = item?.feature ?? null
-                if (!nextFeature) return
-
                 setActiveFeature(nextFeature)
-                onFeatureFocus?.(nextFeature)
+                const interaction =
+                    nextFeature === "jupiter-great-red-spot"
+                        ? jupiterInteractions.greatRedSpot
+                        : null
+                if (onInteraction) {
+                    onInteraction(interaction)
+                } else {
+                    onFeatureFocus?.(interaction ?? null)
+                }
             }}
         >
             <JupiterBriefing />

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { HelmetHUD, hudTitleStyle } from "./HelmetHUD.jsx"
 import TextType from "../components/TextType.jsx"
 
@@ -17,12 +17,6 @@ const briefingRows = [
 ]
 
 const featurePanels = {
-    rings: {
-        code: "RING SYSTEM SCAN",
-        title: "Anéis em órbita",
-        metric: "gelo, poeira e fragmentos rochosos",
-        body: "Os anéis de Saturno parecem sólidos à distância, mas são formados por incontáveis partículas orbitando em faixas finas. A leitura destaca lacunas, densidades e variações de brilho ao redor do planeta.",
-    },
     atmosphere: {
         code: "ATMOSPHERIC FLOW",
         title: "Atmosfera dourada",
@@ -57,6 +51,39 @@ const accordionItems = [
             "Titã possui atmosfera densa, clima ativo e lagos de hidrocarbonetos. Outras luas, como Encélado, também chamam atenção por jatos de gelo que sugerem a presença de um oceano subterrâneo.",
     },
 ]
+
+const saturnInteractions = {
+    rings: {
+        id: "saturn-rings",
+        type: "focus",
+        trigger: "accordion",
+        bodyName: "Saturn",
+        overlay: "rings",
+        target: {
+            body: "Saturn",
+            frame: "bodyPivot",
+            offset: {
+                right: 1.75,
+                up: 0.05,
+                radial: 0,
+            },
+        },
+        camera: {
+            body: "Saturn",
+            frame: "bodyPivot",
+            viewportHeight: 2.1,
+            offset: {
+                radial: 2,
+                right: 0.58,
+                up: 0.08,
+            },
+            lockPosition: true,
+            allowLookAround: true,
+            allowZoom: true,
+            allowPan: false,
+        },
+    },
+}
 
 const saturnTitleStyle = {
     ...hudTitleStyle,
@@ -354,20 +381,38 @@ const SaturnFeatureOverlay = ({ feature }) => {
     )
 }
 
-export default function SaturnHUD({ onFeatureFocus, onZoomDelta }) {
+export default function SaturnHUD({
+    onInteraction,
+    onFeatureFocus,
+    onZoomDelta,
+    accordionResetKey,
+}) {
     const [activeFeature, setActiveFeature] = useState(null)
+
+    useEffect(() => {
+        setActiveFeature(null)
+    }, [accordionResetKey])
 
     return (
         <HelmetHUD
             title="Saturno"
             accordionItems={accordionItems}
+            accordionResetKey={accordionResetKey}
             titleComponent={<SaturnTitle />}
             overlayComponent={<SaturnFeatureOverlay feature={activeFeature} />}
             onZoomDelta={onZoomDelta}
             onAccordionChange={(item) => {
                 const nextFeature = item?.feature ?? null
                 setActiveFeature(nextFeature)
-                onFeatureFocus?.(nextFeature === "rings" ? nextFeature : null)
+                const interaction =
+                    nextFeature === "rings"
+                        ? saturnInteractions.rings
+                        : null
+                if (onInteraction) {
+                    onInteraction(interaction)
+                } else {
+                    onFeatureFocus?.(interaction ?? null)
+                }
             }}
         >
             <SaturnBriefing />

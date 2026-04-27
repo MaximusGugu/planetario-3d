@@ -73,8 +73,9 @@ const MOON_SCALES = {
     Callisto: 7,
 }
 
-const buildGalileanScene = (observation, index) => ({
+const buildGalileanScene = (observation, index, scene = {}) => ({
     id: `galilean-${index + 1}`,
+    type: "featureScene",
     name: observation.label,
     background: {
         starTravel: false,
@@ -83,14 +84,14 @@ const buildGalileanScene = (observation, index) => ({
     hideStarTravel: true,
     hideNavigation: true,
     hideLabels: true,
-    camera: {
-    position: [0, 5, 36],
-    target: [0, 0, 0],
-    distance: 25,
-},
+    camera: scene.camera || {
+        position: [0, 5, 36],
+        target: [0, 0, 0],
+        distance: 25,
+    },
     objects: [
         {
-            objectName: "Jupiter",
+            objectName: scene.planetObjectName || "Jupiter",
             enabled: true,
             x: 0,
             y: 0,
@@ -103,12 +104,15 @@ const buildGalileanScene = (observation, index) => ({
             materialColor: 0xffffff,
         },
         ...observation.moons.map((moon) => ({
-            objectName: MOON_OBJECT_NAMES[moon.name] || moon.name,
+            objectName:
+                scene.moonObjectNames?.[moon.name] ||
+                MOON_OBJECT_NAMES[moon.name] ||
+                moon.name,
             enabled: true,
             x: moon.x,
             y: 0,
             z: 0,
-            scale: MOON_SCALES[moon.name] || 6,
+            scale: scene.moonScales?.[moon.name] || MOON_SCALES[moon.name] || 6,
             materialColor: 0xffffff,
             emissive: 0xffffff,
             emissiveIntensity: 0.12,
@@ -266,6 +270,8 @@ const ArrowIcon = ({ direction = 1 }) => (
 )
 
 export default function GalileanMoons({
+    observations = GALILEAN_OBSERVATIONS,
+    scene = {},
     onClose,
     onStartFeatureScene,
     onUpdateFeatureScene,
@@ -279,7 +285,7 @@ export default function GalileanMoons({
         onStopFeatureScene,
         onClose,
     })
-    const observation = GALILEAN_OBSERVATIONS[observationIndex]
+    const observation = observations[observationIndex]
 
     useEffect(() => {
         callbacksRef.current = {
@@ -291,7 +297,13 @@ export default function GalileanMoons({
     })
 
     useEffect(() => {
-        const sceneConfig = buildGalileanScene(observation, observationIndex)
+        if (!observation) return
+
+        const sceneConfig = buildGalileanScene(
+            observation,
+            observationIndex,
+            scene
+        )
         const callbacks = callbacksRef.current
 
         if (!hasStartedSceneRef.current) {
@@ -300,13 +312,13 @@ export default function GalileanMoons({
         } else {
             callbacks.onUpdateFeatureScene?.(sceneConfig)
         }
-    }, [observation, observationIndex])
+    }, [observation, observationIndex, scene])
 
     const goToObservation = (direction) => {
         setObservationIndex((current) => {
             const next =
-                (current + direction + GALILEAN_OBSERVATIONS.length) %
-                GALILEAN_OBSERVATIONS.length
+                (current + direction + observations.length) %
+                observations.length
             return next
         })
     }
@@ -363,7 +375,7 @@ export default function GalileanMoons({
                     Voltar
                 </button>
                 <span style={indexStyle}>
-                    {observationIndex + 1}/{GALILEAN_OBSERVATIONS.length}
+                    {observationIndex + 1}/{observations.length}
                 </span>
                 <button
                     type="button"

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import TextType from "../components/TextType.jsx"
 
 const hudRootStyle = {
@@ -396,11 +396,16 @@ export function HelmetHUD({
     accordionItems = [],
     content = true,
     onAccordionChange,
+    accordionResetKey,
     titleComponent,
     overlayComponent,
     renderAccordionContent
 }) {
     const [openItem, setOpenItem] = useState(-1)
+
+    useEffect(() => {
+        setOpenItem(-1)
+    }, [accordionResetKey])
 
     return (
         <section style={hudRootStyle} aria-label={`${title || "Planet"} HUD`}>

@@ -36,7 +36,11 @@ import {
 import { getSceneConfig } from "../config/scenes.js"
 import { GrainShader, rendererConfig } from "../config/renderer.js"
 import { createSphere } from "../systems/planets.js"
-import { createRingPlane } from "../systems/orbits.js"
+import {
+    createRingDebrisLayer,
+    createRingPlane,
+    createRingShadowShell,
+} from "../systems/orbits.js"
 import { updateMoonSystems } from "../systems/moons.js"
 import { createSunLighting } from "../systems/lights.js"
 import {
@@ -109,18 +113,6 @@ const getYRotationToFaceCamera = ({ baseDirection, object, camera }) => {
     return baseAngle - cameraAngle
 }
 
-const DEFAULT_HUD_FOCUS_TARGETS = {
-    "jupiter-great-red-spot": {
-        bodyName: "Jupiter",
-        textureU: 0.365,
-        textureV: 0.625,
-        viewportHeightKey: "greatRedSpotViewportHeight",
-        surfaceOffsetKey: "greatRedSpotSurfaceOffset",
-        rotationYKey: "greatRedSpotRotationY",
-        turnSpeedKey: "greatRedSpotTurnSpeed",
-    },
-}
-
 const getAngularRadius = ({ radius, distance }) => {
     if (!radius || !distance || distance <= 0) return 0
 
@@ -152,21 +144,21 @@ export default function SolarSystemRenderer(externalProps) {
     const jupiterOrbitPivot = useRef(new THREE.Group())
     const jupiterGroup = useRef(new THREE.Group())
     const ringsGroup = useRef(new THREE.Group())
+    const jupiterRingDebrisRef = useRef(null)
     const saturnRingsGroup = useRef(new THREE.Group())
+    const saturnRingDebrisRef = useRef(null)
     const uranusRingsGroup = useRef(new THREE.Group())
+    const uranusRingDebrisRef = useRef(null)
     const neptuneRingsGroup = useRef(new THREE.Group())
+    const neptuneRingDebrisRef = useRef(null)
+    const ringShadowRefs = useRef({})
     const sunPosLerp = useRef(new THREE.Vector3())
     const focusLightBlendRef = useRef(0)
     const focusLayerObjectRef = useRef(null)
+    const hudCameraLockRef = useRef(null)
     const sunFlareSpriteRef = useRef(null)
     const jupiterInteriorRadiusRef = useRef(
         props.jupiterRadius ?? DEFAULT_SYSTEM.Jupiter.radius
-    )
-    const jupiterGreatRedSpotDirectionRef = useRef(
-        getSphereTextureDirection({
-            u: props.greatRedSpotTextureU ?? 0.365,
-            v: props.greatRedSpotTextureV ?? 0.635,
-        })
     )
 
     const [labels, setLabels] = useState([])
@@ -174,6 +166,7 @@ export default function SolarSystemRenderer(externalProps) {
     const focusedMoonRef = useRef(null)
     const [hudFeatureFocus, setHudFeatureFocus] = useState(null)
     const hudFeatureFocusRef = useRef(null)
+    const [hudAccordionResetKey, setHudAccordionResetKey] = useState(0)
     const [isInsideJupiter, setIsInsideJupiter] = useState(false)
     const [showSettings, setShowSettings] = useState(false)
     const [settingsAnchorX, setSettingsAnchorX] = useState(null)
@@ -249,6 +242,10 @@ export default function SolarSystemRenderer(externalProps) {
         viewHistoryRef.current.push({ ...currentViewRef.current })
     }
 
+    const resetHudAccordion = () => {
+        setHudAccordionResetKey((key) => key + 1)
+    }
+
     const targetDistance = useRef(props.maxZoom || 10)
     const currentDistance = useRef(props.maxZoom || 10)
     const cameraTarget = useRef(
@@ -317,10 +314,6 @@ export default function SolarSystemRenderer(externalProps) {
 
     useEffect(() => {
         propsRef.current = props
-        jupiterGreatRedSpotDirectionRef.current = getSphereTextureDirection({
-            u: props.greatRedSpotTextureU ?? 0.365,
-            v: props.greatRedSpotTextureV ?? 0.635,
-        })
     }, [props])
 
     useEffect(() => {
@@ -406,8 +399,8 @@ export default function SolarSystemRenderer(externalProps) {
         getViewportDistance(
             getLandingTargetName(name),
             propsRef.current.landingViewportHeight ??
-                propsRef.current.planetViewportHeight ??
-                0.75
+            propsRef.current.planetViewportHeight ??
+            0.75
         )
 
     const getHudFocusTargetConfig = (feature) => {
@@ -417,11 +410,61 @@ export default function SolarSystemRenderer(externalProps) {
             typeof feature === "string" ? feature : feature.id || feature.name
         if (!featureId) return null
 
+        const featureSpec = typeof feature === "object" ? feature : {}
+        const targetSpec = featureSpec.target || {}
+        const cameraSpec = featureSpec.camera || {}
+        const motionSpec = featureSpec.motion || {}
+
         return {
             id: featureId,
-            ...(DEFAULT_HUD_FOCUS_TARGETS[featureId] || {}),
+            type: featureSpec.type || "focus",
+            bodyName:
+                featureSpec.bodyName ||
+                featureSpec.body ||
+                targetSpec.body ||
+                cameraSpec.body,
+            target: targetSpec,
+            camera: cameraSpec,
+            motion: motionSpec,
+            viewportHeight:
+                cameraSpec.viewportHeight ?? featureSpec.viewportHeight,
+            viewportHeightKey:
+                cameraSpec.viewportHeightKey ?? featureSpec.viewportHeightKey,
+            surfaceOffset:
+                targetSpec.surfaceOffset ?? featureSpec.surfaceOffset,
+            surfaceOffsetKey:
+                targetSpec.surfaceOffsetKey ?? featureSpec.surfaceOffsetKey,
+            textureU: targetSpec.textureU ?? featureSpec.textureU,
+            textureV: targetSpec.textureV ?? featureSpec.textureV,
+            latitude: targetSpec.latitude ?? featureSpec.latitude,
+            longitude: targetSpec.longitude ?? featureSpec.longitude,
+            localDirection:
+                targetSpec.localDirection ?? featureSpec.localDirection,
+            pivotTargetOffset:
+                targetSpec.frame === "bodyPivot"
+                    ? targetSpec.offset
+                    : featureSpec.pivotTargetOffset,
+            cameraDirection:
+                cameraSpec.direction ?? featureSpec.cameraDirection,
+            cameraLocalDirection:
+                cameraSpec.localDirection ?? featureSpec.cameraLocalDirection,
+            cameraPivotOffset:
+                cameraSpec.frame === "bodyPivot"
+                    ? cameraSpec.offset
+                    : featureSpec.cameraPivotOffset,
+            lockPosition: cameraSpec.lockPosition ?? featureSpec.lockPosition,
+            allowLookAround:
+                cameraSpec.allowLookAround ?? featureSpec.allowLookAround,
+            allowZoom: cameraSpec.allowZoom ?? featureSpec.allowZoom,
+            allowPan: cameraSpec.allowPan ?? featureSpec.allowPan,
+            rotationYKey:
+                motionSpec.rotationYKey ?? featureSpec.rotationYKey,
+            turnSpeedKey:
+                motionSpec.turnSpeedKey ?? featureSpec.turnSpeedKey,
+            rotationY: motionSpec.rotationY ?? featureSpec.rotationY,
+            turnSpeed: motionSpec.turnSpeed ?? featureSpec.turnSpeed,
             ...(propsRef.current.hudFocusTargets?.[featureId] || {}),
-            ...(typeof feature === "object" ? feature : {}),
+            ...featureSpec,
         }
     }
 
@@ -460,6 +503,30 @@ export default function SolarSystemRenderer(externalProps) {
         return null
     }
 
+    const getHudFocusPivotFrame = (body) => {
+        if (!body) return null
+
+        const center = body.getWorldPosition(new THREE.Vector3())
+        const radial = center.clone()
+
+        if (radial.lengthSq() < 0.000001) {
+            radial.set(1, 0, 0)
+        } else {
+            radial.normalize()
+        }
+
+        const up = new THREE.Vector3(0, 1, 0)
+        const right = new THREE.Vector3().crossVectors(up, radial)
+
+        if (right.lengthSq() < 0.000001) {
+            right.set(1, 0, 0)
+        } else {
+            right.normalize()
+        }
+
+        return { center, radial, right, up }
+    }
+
     const getHudFocusWorldPosition = (featureConfig) => {
         if (!featureConfig?.bodyName) return null
 
@@ -467,10 +534,24 @@ export default function SolarSystemRenderer(externalProps) {
         const body = bodyUnit?.body
         if (!body) return null
 
-        const localDirection =
-            featureConfig.id === "jupiter-great-red-spot"
-                ? jupiterGreatRedSpotDirectionRef.current.clone()
-                : getHudFocusLocalDirection(featureConfig)
+        if (featureConfig.pivotTargetOffset) {
+            const frame = getHudFocusPivotFrame(body)
+            if (frame) {
+                const offset = featureConfig.pivotTargetOffset
+
+                return frame.center
+                    .clone()
+                    .add(frame.right.clone().multiplyScalar(offset.right ?? 0))
+                    .add(frame.up.clone().multiplyScalar(offset.up ?? 0))
+                    .add(
+                        frame.radial
+                            .clone()
+                            .multiplyScalar(offset.radial ?? 0)
+                    )
+            }
+        }
+
+        const localDirection = getHudFocusLocalDirection(featureConfig)
 
         if (localDirection) {
             const radius =
@@ -495,6 +576,36 @@ export default function SolarSystemRenderer(externalProps) {
 
     const getHudFocusCameraDirection = (featureConfig) => {
         if (!featureConfig) return null
+
+        if (
+            featureConfig.camera?.frame === "surfaceNormal" &&
+            featureConfig.bodyName
+        ) {
+            const body = getSceneUnit(featureConfig.bodyName)?.body
+            const localDirection = getHudFocusLocalDirection(featureConfig)
+            if (body && localDirection) {
+                const center = body.getWorldPosition(new THREE.Vector3())
+                const worldPoint = body.localToWorld(localDirection.clone())
+
+                return worldPoint.sub(center).normalize()
+            }
+        }
+
+        if (featureConfig.cameraPivotOffset && featureConfig.bodyName) {
+            const bodyUnit = getSceneUnit(featureConfig.bodyName)
+            if (bodyUnit?.body) {
+                const frame = getHudFocusPivotFrame(bodyUnit.body)
+                if (!frame) return null
+                const offset = featureConfig.cameraPivotOffset
+
+                const dir = new THREE.Vector3()
+                    .add(frame.radial.clone().multiplyScalar(offset.radial ?? 0))
+                    .add(frame.right.clone().multiplyScalar(offset.right ?? 0))
+                    .add(frame.up.clone().multiplyScalar(offset.up ?? 0))
+
+                return dir.lengthSq() > 0.000001 ? dir.normalize() : null
+            }
+        }
 
         const direction = featureConfig.cameraDirection
         if (Array.isArray(direction) && direction.length >= 3) {
@@ -535,6 +646,37 @@ export default function SolarSystemRenderer(externalProps) {
         return propsRef.current.featureViewportHeight
     }
 
+    const createHudCameraLock = (featureConfig, targetPosition, distance) => {
+        if (!featureConfig || !targetPosition || !Number.isFinite(distance)) {
+            return null
+        }
+
+        const direction =
+            getHudFocusCameraDirection(featureConfig) ??
+            new THREE.Vector3()
+                .subVectors(
+                    cameraRef.current?.position ?? new THREE.Vector3(),
+                    targetPosition
+                )
+                .normalize()
+
+        if (!Number.isFinite(direction.x) || direction.lengthSq() < 0.000001) {
+            direction.set(0, 0, 1)
+        }
+
+        return {
+            featureId: featureConfig.id,
+            position: targetPosition
+                .clone()
+                .add(direction.multiplyScalar(distance)),
+            target: targetPosition.clone(),
+            lookDistance: Math.max(distance, 1),
+            allowLookAround: featureConfig.allowLookAround ?? true,
+            allowZoom: featureConfig.allowZoom ?? false,
+            allowPan: featureConfig.allowPan ?? false,
+        }
+    }
+
     const returnToOrbit = (name) => {
         const targetName = getLandingTargetName(name || selectedMoonRef.current)
         if (!targetName) return
@@ -546,6 +688,7 @@ export default function SolarSystemRenderer(externalProps) {
         setFocusedMoon(null)
         setHudFeatureFocus(null)
         hudFeatureFocusRef.current = null
+        hudCameraLockRef.current = null
         setIsInsideJupiter(false)
         isInsideRef.current = false
         currentViewRef.current = { mode: "locked", target: targetName }
@@ -560,7 +703,7 @@ export default function SolarSystemRenderer(externalProps) {
         setCfg((prev) => ({ ...prev, hideUI: false }))
     }
 
-    const returnFromCloseUpToHud = () => {
+    const returnFromCloseUpToHud = ({ resetAccordion = false } = {}) => {
         const targetName = selectedMoonRef.current || focusedMoonRef.current
         if (!targetName) return false
 
@@ -572,6 +715,10 @@ export default function SolarSystemRenderer(externalProps) {
         setFocusedMoon(targetName)
         setHudFeatureFocus(null)
         hudFeatureFocusRef.current = null
+        hudCameraLockRef.current = null
+        if (resetAccordion) {
+            resetHudAccordion()
+        }
         setIsInsideJupiter(false)
         isInsideRef.current = false
         currentViewRef.current = { mode: "focus", target: targetName }
@@ -590,6 +737,9 @@ export default function SolarSystemRenderer(externalProps) {
     const closeUp = (feature) => {
         const featureConfig = getHudFocusTargetConfig(feature)
         if (!featureConfig) return
+
+        hasUserInteractedRef.current = false
+        hudCameraLockRef.current = null
 
         if (featureConfig?.bodyName) {
             if (selectedMoonRef.current !== featureConfig.bodyName) {
@@ -614,6 +764,17 @@ export default function SolarSystemRenderer(externalProps) {
 
             targetDistance.current =
                 featureDistance ?? getLandingDistance(featureConfig.bodyName)
+            const featureTarget =
+                getHudFocusWorldPosition(featureConfig) ??
+                bodyUnit?.body?.getWorldPosition(new THREE.Vector3())
+            hudCameraLockRef.current =
+                featureConfig.lockPosition === false
+                    ? null
+                    : createHudCameraLock(
+                        featureConfig,
+                        featureTarget,
+                        targetDistance.current
+                    )
             currentViewRef.current = {
                 mode: "closeUp",
                 target: featureConfig.bodyName,
@@ -631,10 +792,25 @@ export default function SolarSystemRenderer(externalProps) {
     }
 
     const handleHudFeatureFocus = (feature) => {
+        if (!feature) {
+            if (hudFeatureFocusRef.current) {
+                returnFromCloseUpToHud()
+            }
+            return
+        }
+
         closeUp(feature)
     }
 
     const handleHudZoom = (direction) => {
+        const activeHudFeature = getHudFocusTargetConfig(
+            hudFeatureFocusRef.current
+        )
+
+        if (activeHudFeature?.bodyName && activeHudFeature.allowZoom !== true) {
+            return
+        }
+
         const p = propsRef.current
         const zoomFactor = direction > 0 ? 0.82 : 1.18
 
@@ -669,6 +845,7 @@ export default function SolarSystemRenderer(externalProps) {
         setActiveScene(sceneId)
         setHudFeatureFocus(null)
         hudFeatureFocusRef.current = null
+        hudCameraLockRef.current = null
         setIsInsideJupiter(false)
         isInsideRef.current = false
         freeNavigationRef.current = false
@@ -726,9 +903,11 @@ export default function SolarSystemRenderer(externalProps) {
         if (!React.isValidElement(overlay)) return overlay
 
         return React.cloneElement(overlay, {
+            onInteraction: handleHudFeatureFocus,
             onFeatureFocus: handleHudFeatureFocus,
             onCloseUp: closeUp,
             onZoomDelta: handleHudZoom,
+            accordionResetKey: hudAccordionResetKey,
             onStartFeatureScene: startFeatureScene,
             onUpdateFeatureScene: updateFeatureScene,
             onStopFeatureScene: stopFeatureScene,
@@ -780,6 +959,7 @@ export default function SolarSystemRenderer(externalProps) {
         focusedMoonRef.current = null
         setHudFeatureFocus(null)
         hudFeatureFocusRef.current = null
+        hudCameraLockRef.current = null
         setIsInsideJupiter(false)
         isInsideRef.current = false
     }
@@ -797,6 +977,7 @@ export default function SolarSystemRenderer(externalProps) {
         setFocusedMoon(null)
         setHudFeatureFocus(null)
         hudFeatureFocusRef.current = null
+        hudCameraLockRef.current = null
         setIsInsideJupiter(false)
         isInsideRef.current = false
         freeNavigationRef.current = false
@@ -884,6 +1065,7 @@ export default function SolarSystemRenderer(externalProps) {
         setFocusedMoon(null)
         setHudFeatureFocus(null)
         hudFeatureFocusRef.current = null
+        hudCameraLockRef.current = null
     }
     const releaseToSpace = () => {
         if (freeFlightMode) {
@@ -945,6 +1127,7 @@ export default function SolarSystemRenderer(externalProps) {
 
             setHudFeatureFocus(null)
             hudFeatureFocusRef.current = null
+            hudCameraLockRef.current = null
             setFocusedMoon(null)
             setIsInsideJupiter(false)
             isInsideRef.current = false
@@ -973,7 +1156,7 @@ export default function SolarSystemRenderer(externalProps) {
 
     const goBackView = () => {
         if (hudFeatureFocusRef.current && selectedMoonRef.current) {
-            if (returnFromCloseUpToHud()) return
+            if (returnFromCloseUpToHud({ resetAccordion: true })) return
             return
         }
 
@@ -1067,9 +1250,14 @@ export default function SolarSystemRenderer(externalProps) {
         jupiterOrbitPivot.current.clear()
         jupiterGroup.current.clear()
         ringsGroup.current.clear()
+        jupiterRingDebrisRef.current = null
         saturnRingsGroup.current.clear()
+        saturnRingDebrisRef.current = null
         uranusRingsGroup.current.clear()
+        uranusRingDebrisRef.current = null
         neptuneRingsGroup.current.clear()
+        neptuneRingDebrisRef.current = null
+        ringShadowRefs.current = {}
 
         const renderer = createRenderer({
             container,
@@ -1177,6 +1365,12 @@ export default function SolarSystemRenderer(externalProps) {
                 loadTexture,
                 config: props,
             })
+
+        const makeRingDebrisLayer = (options) =>
+            createRingDebrisLayer(options)
+
+        const makeRingShadowShell = (options) =>
+            createRingShadowShell(options)
 
         const sunMesh = makeSphere({
             name: "Sun",
@@ -1413,6 +1607,37 @@ export default function SolarSystemRenderer(externalProps) {
                     opacity: props.saturnRingOpacity ?? 0.55,
                     alphaTest: props.saturnRingAlphaTest ?? 0.05,
                 })
+                saturnRingDebrisRef.current = makeRingDebrisLayer({
+                    name: "Saturn Ring Debris",
+                    count: props.saturnRingDebrisCount ?? 2600,
+                    width: props.saturnRingWidth ?? 3.2,
+                    height: props.saturnRingHeight ?? 3.2,
+                    innerRadius: props.saturnRingDebrisInnerRadius ?? 0.26,
+                    outerRadius: props.saturnRingDebrisOuterRadius ?? 0.49,
+                    sizeMin: props.saturnRingDebrisSizeMin ?? 0.003,
+                    sizeMax: props.saturnRingDebrisSizeMax ?? 0.018,
+                    verticalSpread:
+                        props.saturnRingDebrisVerticalSpread ?? 0.018,
+                    tilt: props.saturnRingDebrisTilt ?? 0.72,
+                    seed: props.saturnRingDebrisSeed ?? 731,
+                    opacity: props.saturnRingDebrisOpacity ?? 0.72,
+                    colors: props.saturnRingDebrisColors,
+                    bands: props.saturnRingDebrisBands,
+                })
+                saturnRingsGroup.current.add(saturnRingDebrisRef.current)
+                ringShadowRefs.current.Saturn = makeRingShadowShell({
+                    name: "Saturn Ring Shadow",
+                    radius: planet.size * 1.006,
+                    rotX: props.saturnRingRotX ?? 90,
+                    rotY: props.saturnRingRotY ?? 0,
+                    rotZ: props.saturnRingRotZ ?? 0,
+                    opacity: props.saturnRingPlanetShadowOpacity ?? 0.2,
+                    width: props.saturnRingPlanetShadowWidth ?? 0.055,
+                    softness: props.saturnRingPlanetShadowSoftness ?? 0.13,
+                    color: props.saturnRingPlanetShadowColor ?? 0x080604,
+                    segments: props.saturnSegments ?? 96,
+                })
+                mesh.add(ringShadowRefs.current.Saturn)
                 mesh.add(saturnRingsGroup.current)
             }
 
@@ -1429,6 +1654,37 @@ export default function SolarSystemRenderer(externalProps) {
                     opacity: props.uranusRingOpacity ?? 0.35,
                     alphaTest: props.uranusRingAlphaTest ?? 0.05,
                 })
+                uranusRingDebrisRef.current = makeRingDebrisLayer({
+                    name: "Uranus Ring Debris",
+                    count: props.uranusRingDebrisCount ?? 12000,
+                    width: props.uranusRingWidth ?? 2.5,
+                    height: props.uranusRingHeight ?? 2.5,
+                    innerRadius: props.uranusRingDebrisInnerRadius ?? 0.28,
+                    outerRadius: props.uranusRingDebrisOuterRadius ?? 0.49,
+                    sizeMin: props.uranusRingDebrisSizeMin ?? 0.0008,
+                    sizeMax: props.uranusRingDebrisSizeMax ?? 0.002,
+                    verticalSpread:
+                        props.uranusRingDebrisVerticalSpread ?? 0.01,
+                    tilt: props.uranusRingDebrisTilt ?? 0.62,
+                    seed: props.uranusRingDebrisSeed ?? 907,
+                    opacity: props.uranusRingDebrisOpacity ?? 0.58,
+                    colors: props.uranusRingDebrisColors,
+                    bands: props.uranusRingDebrisBands,
+                })
+                uranusRingsGroup.current.add(uranusRingDebrisRef.current)
+                ringShadowRefs.current.Uranus = makeRingShadowShell({
+                    name: "Uranus Ring Shadow",
+                    radius: planet.size * 1.006,
+                    rotX: props.uranusRingRotX ?? 90,
+                    rotY: props.uranusRingRotY ?? 0,
+                    rotZ: props.uranusRingRotZ ?? 0,
+                    opacity: props.uranusRingPlanetShadowOpacity ?? 0.16,
+                    width: props.uranusRingPlanetShadowWidth ?? 0.045,
+                    softness: props.uranusRingPlanetShadowSoftness ?? 0.12,
+                    color: props.uranusRingPlanetShadowColor ?? 0x031014,
+                    segments: props.uranusSegments ?? 96,
+                })
+                mesh.add(ringShadowRefs.current.Uranus)
                 mesh.add(uranusRingsGroup.current)
             }
 
@@ -1445,6 +1701,37 @@ export default function SolarSystemRenderer(externalProps) {
                     opacity: props.neptuneRingOpacity ?? 0.3,
                     alphaTest: props.neptuneRingAlphaTest ?? 0.05,
                 })
+                neptuneRingDebrisRef.current = makeRingDebrisLayer({
+                    name: "Neptune Ring Debris",
+                    count: props.neptuneRingDebrisCount ?? 14000,
+                    width: props.neptuneRingWidth ?? 2.4,
+                    height: props.neptuneRingHeight ?? 2.4,
+                    innerRadius: props.neptuneRingDebrisInnerRadius ?? 0.27,
+                    outerRadius: props.neptuneRingDebrisOuterRadius ?? 0.5,
+                    sizeMin: props.neptuneRingDebrisSizeMin ?? 0.0008,
+                    sizeMax: props.neptuneRingDebrisSizeMax ?? 0.0022,
+                    verticalSpread:
+                        props.neptuneRingDebrisVerticalSpread ?? 0.012,
+                    tilt: props.neptuneRingDebrisTilt ?? 0.7,
+                    seed: props.neptuneRingDebrisSeed ?? 1201,
+                    opacity: props.neptuneRingDebrisOpacity ?? 0.82,
+                    colors: props.neptuneRingDebrisColors,
+                    bands: props.neptuneRingDebrisBands,
+                })
+                neptuneRingsGroup.current.add(neptuneRingDebrisRef.current)
+                ringShadowRefs.current.Neptune = makeRingShadowShell({
+                    name: "Neptune Ring Shadow",
+                    radius: planet.size * 1.006,
+                    rotX: props.neptuneRingRotX ?? 90,
+                    rotY: props.neptuneRingRotY ?? 0,
+                    rotZ: props.neptuneRingRotZ ?? 0,
+                    opacity: props.neptuneRingPlanetShadowOpacity ?? 0.18,
+                    width: props.neptuneRingPlanetShadowWidth ?? 0.048,
+                    softness: props.neptuneRingPlanetShadowSoftness ?? 0.13,
+                    color: props.neptuneRingPlanetShadowColor ?? 0x020915,
+                    segments: props.neptuneSegments ?? 96,
+                })
+                mesh.add(ringShadowRefs.current.Neptune)
                 mesh.add(neptuneRingsGroup.current)
             }
 
@@ -1580,7 +1867,38 @@ export default function SolarSystemRenderer(externalProps) {
             alphaTest: props.ringAlphaTest ?? 0.02,
         })
 
+        jupiterRingDebrisRef.current = makeRingDebrisLayer({
+            name: "Jupiter Ring Debris",
+            count: props.jupiterRingDebrisCount ?? 16000,
+            width: props.ringWidth ?? 4.5,
+            height: props.ringHeight ?? 4.5,
+            innerRadius: props.jupiterRingDebrisInnerRadius ?? 0.18,
+            outerRadius: props.jupiterRingDebrisOuterRadius ?? 0.48,
+            sizeMin: props.jupiterRingDebrisSizeMin ?? 0.0007,
+            sizeMax: props.jupiterRingDebrisSizeMax ?? 0.002,
+            verticalSpread: props.jupiterRingDebrisVerticalSpread ?? 0.014,
+            tilt: props.jupiterRingDebrisTilt ?? 0.68,
+            seed: props.jupiterRingDebrisSeed ?? 601,
+            opacity: props.jupiterRingDebrisOpacity ?? 0.86,
+            colors: props.jupiterRingDebrisColors,
+            bands: props.jupiterRingDebrisBands,
+        })
+        jupiterRing.add(jupiterRingDebrisRef.current)
         ringsGroup.current.add(jupiterRing)
+
+        ringShadowRefs.current.Jupiter = makeRingShadowShell({
+            name: "Jupiter Ring Shadow",
+            radius: jupiterRadius * 1.006,
+            rotX: props.ringsRotX ?? 90,
+            rotY: props.ringsRotY ?? 0,
+            rotZ: props.ringsRotZ ?? 0,
+            opacity: props.jupiterRingPlanetShadowOpacity ?? 0.17,
+            width: props.jupiterRingPlanetShadowWidth ?? 0.045,
+            softness: props.jupiterRingPlanetShadowSoftness ?? 0.12,
+            color: props.jupiterRingPlanetShadowColor ?? 0x050403,
+            segments: props.jupiterSegments ?? 96,
+        })
+        jupiterGroup.current.add(ringShadowRefs.current.Jupiter)
 
         const moonsData = getJupiterMoonConfigs(props)
 
@@ -1826,10 +2144,10 @@ export default function SolarSystemRenderer(externalProps) {
                     const hideAt =
                         objAngularRadius +
                         sunAngularRadius *
-                            (p.sunOcclusionHideRatio ?? 0)
+                        (p.sunOcclusionHideRatio ?? 0)
                     const fadeWidth =
                         sunAngularRadius *
-                            (p.sunOcclusionFadeWidth ?? 0.8)
+                        (p.sunOcclusionFadeWidth ?? 0.8)
 
                     if (separation <= hideAt) {
                         sunVisualBlend = 0
@@ -1897,6 +2215,12 @@ export default function SolarSystemRenderer(externalProps) {
             updateRingLight(saturnRingsGroup.current)
             updateRingLight(uranusRingsGroup.current)
             updateRingLight(neptuneRingsGroup.current)
+            Object.values(ringShadowRefs.current).forEach((shadowShell) => {
+                if (!shadowShell?.material?.uniforms?.sunWorldPosition) return
+                shadowShell.material.uniforms.sunWorldPosition.value.copy(
+                    sunWorldPos
+                )
+            })
             if (saturnRingsGroup.current?.material?.uniforms) {
                 const uniforms = saturnRingsGroup.current.material.uniforms
                 uniforms.opacity.value = isRealScaleScene
@@ -1939,6 +2263,44 @@ export default function SolarSystemRenderer(externalProps) {
                     (p.zoomSmoothness ?? 0.05)
 
                 const selectedName = selectedMoonRef.current
+                const isRingPlanetVisible = (name) =>
+                    !!activeSceneName ||
+                    selectedName === name ||
+                    focusedMoonRef.current === name
+                const ringVisuals = [
+                    ["Jupiter", jupiterRingDebrisRef.current],
+                    ["Saturn", saturnRingDebrisRef.current],
+                    ["Uranus", uranusRingDebrisRef.current],
+                    ["Neptune", neptuneRingDebrisRef.current],
+                ]
+
+                ringVisuals.forEach(([name, debris]) => {
+                    const visible = isRingPlanetVisible(name)
+                    if (debris) {
+                        debris.visible = visible
+                    }
+                    if (ringShadowRefs.current[name]) {
+                        ringShadowRefs.current[name].visible = visible
+                    }
+                })
+
+                if (ringShadowRefs.current.Jupiter) {
+                    const jupiterSystemSelected = [
+                        "Jupiter",
+                        "Callisto",
+                        "Europa",
+                        "Ganymede",
+                        "IO",
+                    ].includes(selectedName)
+                    ringShadowRefs.current.Jupiter.visible =
+                        !!activeSceneName ||
+                        jupiterSystemSelected ||
+                        focusedMoonRef.current === "Jupiter"
+                    if (jupiterRingDebrisRef.current) {
+                        jupiterRingDebrisRef.current.visible =
+                            ringShadowRefs.current.Jupiter.visible
+                    }
+                }
                 const selectedUnit = selectedName
                     ? getSceneUnit(selectedName)
                     : null
@@ -1955,10 +2317,10 @@ export default function SolarSystemRenderer(externalProps) {
                 const selectedViewportHeight =
                     selectedWorldPos && selectedRadius
                         ? getProjectedViewportHeight({
-                              camera: cam,
-                              worldPos: selectedWorldPos,
-                              radius: selectedRadius,
-                          })
+                            camera: cam,
+                            worldPos: selectedWorldPos,
+                            radius: selectedRadius,
+                        })
                         : 0
                 const hudHideViewportHeight =
                     p.hudHideViewportHeight ?? p.planetViewportHeight ?? 0.7
@@ -1970,7 +2332,7 @@ export default function SolarSystemRenderer(externalProps) {
                 const isCameraSettledOnFocus =
                     selectedCameraDistance > 0 &&
                     selectedCameraDistance <=
-                        currentDistance.current * (1 + focusDistanceTolerance)
+                    currentDistance.current * (1 + focusDistanceTolerance)
 
                 const activeHudTarget = focusedMoonRef.current
                 const activeHudOrbitTarget = activeHudTarget
@@ -1984,18 +2346,19 @@ export default function SolarSystemRenderer(externalProps) {
                     selectedName === activeHudOrbitTarget &&
                     selectedViewportHeight > 0 &&
                     selectedViewportHeight >=
-                        hudShowViewportHeight - hudViewportEpsilon
+                    hudShowViewportHeight - hudViewportEpsilon
 
                 if (activeHudTarget && selectedName === activeHudOrbitTarget) {
                     const shouldHide =
                         isCameraSettledOnFocus &&
                         selectedViewportHeight > 0 &&
                         selectedViewportHeight <
-                            hudHideViewportHeight - hudViewportEpsilon
+                        hudHideViewportHeight - hudViewportEpsilon
 
                     if (shouldHide) {
                         setHudFeatureFocus(null)
                         hudFeatureFocusRef.current = null
+                        hudCameraLockRef.current = null
                         setFocusedMoon(null)
                         focusedMoonRef.current = null
                     }
@@ -2008,7 +2371,7 @@ export default function SolarSystemRenderer(externalProps) {
                     isCameraSettledOnFocus &&
                     selectedViewportHeight > 0 &&
                     selectedViewportHeight >=
-                        hudShowViewportHeight - hudViewportEpsilon
+                    hudShowViewportHeight - hudViewportEpsilon
                 ) {
                     setFocusedMoon(selectedName)
                     focusedMoonRef.current = selectedName
@@ -2021,11 +2384,11 @@ export default function SolarSystemRenderer(externalProps) {
                 focusModeActive =
                     !!focusedMoonRef.current &&
                     getLandingTargetName(focusedMoonRef.current) ===
-                        selectedName &&
+                    selectedName &&
                     isCameraSettledOnFocus &&
                     selectedViewportHeight > 0 &&
                     selectedViewportHeight >=
-                        hudShowViewportHeight - hudViewportEpsilon
+                    hudShowViewportHeight - hudViewportEpsilon
 
                 hudFeatureMotionActive =
                     landingExperienceActive &&
@@ -2077,6 +2440,7 @@ export default function SolarSystemRenderer(externalProps) {
 
                     const moonName = selectedMoonRef.current
                     const targetSunPos = new THREE.Vector3()
+                    let activeHudCameraLock = null
 
                     const targetObj = getSceneUnitTarget(moonName)
 
@@ -2086,7 +2450,7 @@ export default function SolarSystemRenderer(externalProps) {
                         const hudFocusConfig = activeHudFocusConfig
                         const hudFocusWorldPos =
                             hudFeatureMotionActive &&
-                            hudFocusConfig?.bodyName === moonName
+                                hudFocusConfig?.bodyName === moonName
                                 ? getHudFocusWorldPosition(hudFocusConfig)
                                 : null
                         const focusWorldPos = worldPos.clone()
@@ -2095,31 +2459,71 @@ export default function SolarSystemRenderer(externalProps) {
                             focusWorldPos.copy(hudFocusWorldPos)
                         }
 
+                        if (
+                            hudFocusWorldPos &&
+                            hudFocusConfig &&
+                            hudFocusConfig.lockPosition !== false
+                        ) {
+                            if (
+                                !hudCameraLockRef.current ||
+                                hudCameraLockRef.current.featureId !==
+                                hudFocusConfig.id
+                            ) {
+                                hudCameraLockRef.current = createHudCameraLock(
+                                    hudFocusConfig,
+                                    hudFocusWorldPos,
+                                    targetDistance.current
+                                )
+                            }
+
+                            activeHudCameraLock = hudCameraLockRef.current
+                        }
+
+                        if (activeHudCameraLock) {
+                            focusWorldPos.copy(activeHudCameraLock.target)
+                        }
+
                         cameraTarget.current.copy(focusWorldPos)
 
                         const direction =
-                            hudFocusWorldPos && hudFocusConfig
-                                ? (getHudFocusCameraDirection(hudFocusConfig) ??
-                                  new THREE.Vector3()
-                                      .subVectors(cam.position, ctrl.target)
-                                      .normalize())
+                            activeHudCameraLock
+                                ? new THREE.Vector3()
+                                    .subVectors(
+                                        activeHudCameraLock.position,
+                                        activeHudCameraLock.target
+                                    )
+                                    .normalize()
+                                : hudFocusWorldPos && hudFocusConfig
+                                    ? (getHudFocusCameraDirection(hudFocusConfig) ??
+                                        new THREE.Vector3()
+                                            .subVectors(cam.position, ctrl.target)
+                                            .normalize())
                                 : new THREE.Vector3()
-                                      .subVectors(cam.position, ctrl.target)
-                                      .normalize()
+                                    .subVectors(cam.position, ctrl.target)
+                                    .normalize()
 
                         if (!Number.isFinite(direction.x)) {
                             direction.set(0, 0, 1)
                         }
 
-                        const desiredCamPos = new THREE.Vector3()
-                            .copy(focusWorldPos)
-                            .add(
-                                direction.multiplyScalar(
-                                    currentDistance.current
+                        const desiredCamPos =
+                            activeHudCameraLock?.position ??
+                            new THREE.Vector3()
+                                .copy(focusWorldPos)
+                                .add(
+                                    direction.multiplyScalar(
+                                        currentDistance.current
+                                    )
                                 )
-                            )
 
                         cam.position.lerp(desiredCamPos, p.travelSpeed ?? 0.08)
+                        if (
+                            activeHudCameraLock &&
+                            cam.position.distanceTo(desiredCamPos) <
+                            (p.cameraLockSnapDistance ?? 0.02)
+                        ) {
+                            cam.position.copy(desiredCamPos)
+                        }
                         const focalLightDirection = new THREE.Vector3()
                             .subVectors(cam.position, focusWorldPos)
                             .normalize()
@@ -2149,7 +2553,7 @@ export default function SolarSystemRenderer(externalProps) {
                     const isInside =
                         selectedMoonRef.current === "Jupiter" &&
                         currentDistance.current <
-                            jupiterInteriorRadiusRef.current
+                        jupiterInteriorRadiusRef.current
 
                     if (isInside !== isInsideRef.current) {
                         isInsideRef.current = isInside
@@ -2164,11 +2568,63 @@ export default function SolarSystemRenderer(externalProps) {
                     scene.add(directionalLight.target)
                     scene.add(focusLight.target)
 
-                    ctrl.target.lerp(
-                        cameraTarget.current,
-                        p.travelSpeed ?? 0.08
-                    )
-                    ctrl.update()
+                    if (activeHudCameraLock) {
+                        ctrl.enableZoom = !!activeHudCameraLock.allowZoom
+                        ctrl.enablePan = !!activeHudCameraLock.allowPan
+                        ctrl.enableRotate =
+                            activeHudCameraLock.allowLookAround !== false
+
+                        const cameraLockSettled =
+                            cam.position.distanceTo(
+                                activeHudCameraLock.position
+                            ) <= (p.cameraLockSettleDistance ?? 0.05)
+
+                        if (hasUserInteractedRef.current && cameraLockSettled) {
+                            ctrl.update()
+
+                            const lookDirection = new THREE.Vector3()
+                                .subVectors(ctrl.target, cam.position)
+                                .normalize()
+
+                            if (!Number.isFinite(lookDirection.x)) {
+                                lookDirection
+                                    .subVectors(
+                                        activeHudCameraLock.target,
+                                        activeHudCameraLock.position
+                                    )
+                                    .normalize()
+                            }
+
+                            cam.position.copy(activeHudCameraLock.position)
+                            ctrl.target.copy(
+                                activeHudCameraLock.position
+                                    .clone()
+                                    .add(
+                                        lookDirection.multiplyScalar(
+                                            activeHudCameraLock.lookDistance
+                                        )
+                                    )
+                            )
+                            cameraTarget.current.copy(ctrl.target)
+                            cam.lookAt(ctrl.target)
+                        } else {
+                            ctrl.target.lerp(
+                                cameraTarget.current,
+                                p.travelSpeed ?? 0.08
+                            )
+                            ctrl.update()
+
+                            if (cameraLockSettled) {
+                                cam.position.copy(activeHudCameraLock.position)
+                            }
+                        }
+                    } else {
+                        ctrl.target.lerp(
+                            cameraTarget.current,
+                            p.travelSpeed ?? 0.08
+                        )
+                        ctrl.update()
+                    }
                 }
 
                 const allNav = Object.keys(sceneUnitsRef.current).filter(
@@ -2278,19 +2734,24 @@ export default function SolarSystemRenderer(externalProps) {
                 ) {
                     const targetJupiterRotation =
                         getYRotationToFaceCamera({
-                            baseDirection:
-                                jupiterGreatRedSpotDirectionRef.current,
+                            baseDirection: getHudFocusLocalDirection(
+                                hudFocusConfig
+                            ),
                             object: jupiterGroup.current,
                             camera: cam,
                         }) ??
                         THREE.MathUtils.degToRad(
-                            p[hudFocusConfig.rotationYKey] ?? -124
+                            hudFocusConfig.rotationY ??
+                            p[hudFocusConfig.rotationYKey] ??
+                            -124
                         )
 
                     jupiterGroup.current.rotation.y = lerpAngle(
                         jupiterGroup.current.rotation.y,
                         targetJupiterRotation,
-                        p[hudFocusConfig.turnSpeedKey] ?? 0.08
+                        hudFocusConfig.turnSpeed ??
+                        p[hudFocusConfig.turnSpeedKey] ??
+                        0.08
                     )
                 } else if (!focusedJupiterChild) {
                     jupiterGroup.current.rotation.y +=
@@ -2305,6 +2766,14 @@ export default function SolarSystemRenderer(externalProps) {
                         orbitSpeed: c.orbitSpeed,
                         rotateSpeed: c.rotateSpeed,
                     })
+
+                    const asteroidBelt = getSceneUnit("AsteroidBelt")?.root
+                    if (asteroidBelt) {
+                        asteroidBelt.rotation.y +=
+                            (c.orbitSpeed ?? 0.3) *
+                            0.002 *
+                            (p.asteroidOrbitSpeed ?? 0.55)
+                    }
                 }
 
                 sunMesh.rotation.y += 0.002
@@ -2365,8 +2834,8 @@ export default function SolarSystemRenderer(externalProps) {
                 focusLightBlendRef.current < 0.001
                     ? 0
                     : focusLightBlendRef.current > 0.999
-                      ? 1
-                      : focusLightBlendRef.current
+                        ? 1
+                        : focusLightBlendRef.current
             focusLightBlendRef.current = focusLightBlend
 
             const sunBlend = 1 - focusLightBlend
@@ -2498,6 +2967,7 @@ export default function SolarSystemRenderer(externalProps) {
         if (name !== "Jupiter") {
             setHudFeatureFocus(null)
             hudFeatureFocusRef.current = null
+            hudCameraLockRef.current = null
         }
 
         currentViewRef.current = { mode: "focus", target: name }
@@ -2541,14 +3011,14 @@ export default function SolarSystemRenderer(externalProps) {
                 .then(() => {
                     setIsFullscreen(true)
                 })
-                .catch(() => {})
+                .catch(() => { })
         } else {
             document
                 .exitFullscreen()
                 .then(() => {
                     setIsFullscreen(false)
                 })
-                .catch(() => {})
+                .catch(() => { })
         }
     }
 
@@ -2688,8 +3158,8 @@ export default function SolarSystemRenderer(externalProps) {
                         if (containerRect) {
                             setSettingsAnchorX(
                                 buttonRect.left +
-                                    buttonRect.width / 2 -
-                                    containerRect.left
+                                buttonRect.width / 2 -
+                                containerRect.left
                             )
                         }
 
