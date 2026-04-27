@@ -27,6 +27,8 @@ const frameLineStyle = {
         "0 0 6px rgba(255,255,255,0.7), 0 0 16px rgba(255,255,255,0.2)",
 }
 
+const contentInset = "clamp(28px, 3vh, 44px)"
+
 const contentStyle = {
     position: "absolute",
     top: "7.5%",
@@ -39,7 +41,7 @@ const contentStyle = {
     alignItems: "stretch",
     justifyContent: "space-between",
     gap: 32,
-    padding: "4vh 1vw 0 3vw",
+    padding: `${contentInset} 1vw ${contentInset} ${contentInset}`,
 }
 
 const titleStyle = {
@@ -155,29 +157,83 @@ const AccordionIcon = ({ isOpen }) => (
     </svg>
 )
 
-const cornerTicksStyle = {
+const zoomControlStyle = {
     position: "absolute",
-    right: "4.1vw",
-    bottom: "28vh",
-    width: 78,
-    height: "34vh",
-    opacity: 0.75,
-    background:
-        "repeating-linear-gradient(to bottom, transparent 0 13px, rgba(255,255,255,0.8) 14px 15px, transparent 16px 25px)",
-    filter: "drop-shadow(0 0 10px rgba(255,255,255,0.6))",
-}
-
-const longTicksStyle = {
-    position: "absolute",
-    right: "3vw",
+    right: "2.85vw",
     top: "50%",
     transform: "translateY(-50%)",
-    width: 40,
-    height: "60vh",
-    opacity: 0.5,
+    width: 64,
+    height: "58vh",
+    minHeight: 360,
+    pointerEvents: "none",
+    color: "rgba(255,255,255,0.82)",
+    filter: "drop-shadow(0 0 10px rgba(255,255,255,0.35))",
+}
+
+const zoomRailStyle = {
+    position: "absolute",
+    right: 24,
+    top: 42,
+    bottom: 42,
+    width: 1,
     background:
-        "repeating-linear-gradient(to bottom, transparent 0 9px, rgba(255,255,255,0.4) 10px 11px)",
-    filter: "drop-shadow(0 0 6px rgba(255,255,255,0.45))",
+        "linear-gradient(to bottom, transparent, rgba(255,255,255,0.58) 12%, rgba(255,255,255,0.58) 88%, transparent)",
+}
+
+const zoomTicksStyle = {
+    position: "absolute",
+    inset: "42px 0",
+    background:
+        "repeating-linear-gradient(to bottom, transparent 0 10px, rgba(255,255,255,0.26) 11px 12px, transparent 13px 22px)",
+    WebkitMaskImage:
+        "linear-gradient(to bottom, transparent, black 9%, black 91%, transparent)",
+    maskImage:
+        "linear-gradient(to bottom, transparent, black 9%, black 91%, transparent)",
+}
+
+const zoomThumbStyle = {
+    position: "absolute",
+    right: 11,
+    top: "42%",
+    width: 28,
+    height: 2,
+    borderRadius: 999,
+    background: "#df8845",
+    boxShadow:
+        "0 0 10px rgba(223,136,69,0.9), 0 0 24px rgba(223,136,69,0.28)",
+}
+
+const zoomReadoutStyle = {
+    position: "absolute",
+    right: 40,
+    top: "42%",
+    transform: "translateY(-50%) rotate(-90deg)",
+    transformOrigin: "right center",
+    fontFamily: "'General Sans', sans-serif",
+    fontSize: 9,
+    fontWeight: 800,
+    letterSpacing: "0.18em",
+    color: "rgba(223,136,69,0.92)",
+    whiteSpace: "nowrap",
+}
+
+const zoomButtonStyle = {
+    position: "absolute",
+    right: 12,
+    width: 24,
+    height: 24,
+    display: "grid",
+    placeItems: "center",
+    border: "1px solid rgba(255,255,255,0.32)",
+    borderRadius: "50%",
+    background: "rgba(5,7,12,0.44)",
+    color: "rgba(255,255,255,0.86)",
+    fontFamily: "'General Sans', sans-serif",
+    fontSize: 14,
+    fontWeight: 800,
+    lineHeight: 1,
+    cursor: "pointer",
+    pointerEvents: "auto",
 }
 
 const cornerBlockStyle = {
@@ -189,23 +245,60 @@ const cornerBlockStyle = {
     boxSizing: "border-box",
 }
 
-const Frame = () => (
+const ZoomControl = ({ onZoomDelta }) => (
+    <div style={zoomControlStyle} aria-label="Controle de zoom do HUD">
+        <button
+            type="button"
+            aria-label="Aproximar"
+            style={{ ...zoomButtonStyle, top: 0 }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+                event.stopPropagation()
+                onZoomDelta?.(1)
+            }}
+        >
+            +
+        </button>
+        <div style={zoomTicksStyle} />
+        <div style={zoomRailStyle} />
+        <div className="hud-zoom-thumb" style={zoomThumbStyle} />
+        <div className="hud-zoom-readout" style={zoomReadoutStyle}>
+            ZOOM 68%
+        </div>
+        <button
+            type="button"
+            aria-label="Afastar"
+            style={{ ...zoomButtonStyle, bottom: 0 }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+                event.stopPropagation()
+                onZoomDelta?.(-1)
+            }}
+        >
+            −
+        </button>
+    </div>
+)
+
+export const Frame = ({ showGrid = true }) => (
     <div style={frameStyle} aria-hidden="true">
         {/* GRID COM FADE NAS BORDAS */}
-        <div
-            style={{
-                position: "absolute",
-                inset: 0,
-                opacity: 0.25,
-                backgroundImage:
-                    "radial-gradient(rgba(255,255,255,0.6) 1px, transparent 1px)",
-                backgroundSize: "42px 42px",
-                WebkitMaskImage:
-                    "radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0,0,0,0.3) 60%, black 100%)",
-                maskImage:
-                    "radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0,0,0,0.3) 60%, black 100%)",
-            }}
-        />
+        {showGrid && (
+            <div
+                style={{
+                    position: "absolute",
+                    inset: 0,
+                    opacity: 0.25,
+                    backgroundImage:
+                        "radial-gradient(rgba(255,255,255,0.6) 1px, transparent 1px)",
+                    backgroundSize: "42px 42px",
+                    WebkitMaskImage:
+                        "radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0,0,0,0.3) 60%, black 100%)",
+                    maskImage:
+                        "radial-gradient(ellipse at center, transparent 0%, transparent 40%, rgba(0,0,0,0.3) 60%, black 100%)",
+                }}
+            />
+        )}
 
         {/* TOPO COM DESNÍVEL */}
         <div style={{ ...frameLineStyle, top: 0, left: 0, width: "calc(50% - 149px)", height: 1 }} />
@@ -244,19 +337,42 @@ export function HelmetHUD({
     content = true,
     onAccordionChange,
     titleComponent,
+    overlayComponent,
+    onZoomDelta,
+    contentStyle: contentStyleOverride,
+    leftArticleStyle: leftArticleStyleOverride,
+    bodyStyle: bodyStyleOverride,
+    renderAccordionContent,
 }) {
     const [openItem, setOpenItem] = useState(-1)
 
     return (
         <section style={hudRootStyle} aria-label={`${title || "Planet"} HUD`}>
             <Frame />
-            <div style={longTicksStyle} />
+            <ZoomControl onZoomDelta={onZoomDelta} />
 
             {content && (
-                <div style={contentStyle}>
-                    <article style={leftArticleStyle}>
+                <div
+                    style={{
+                        ...contentStyle,
+                        ...(contentStyleOverride || {}),
+                    }}
+                >
+                    <article
+                        style={{
+                            ...leftArticleStyle,
+                            ...(leftArticleStyleOverride || {}),
+                        }}
+                    >
                         {titleComponent ? titleComponent : <h1 style={titleStyle}>{title}</h1>}
-                        <div style={bodyStyle}>{children}</div>
+                        <div
+                            style={{
+                                ...bodyStyle,
+                                ...(bodyStyleOverride || {}),
+                            }}
+                        >
+                            {children}
+                        </div>
                     </article>
 
                     <aside
@@ -287,7 +403,8 @@ export function HelmetHUD({
                                         <AccordionIcon isOpen={isOpen} />
                                     </button>
                                     {isOpen && (
-                                        <TextType
+                                        <div>
+                                            <TextType
                                             text={item.content}
                                             typingSpeed={20}
                                             pauseDuration={800}
@@ -302,7 +419,9 @@ export function HelmetHUD({
                                                 margin: '12px 0 18px',
                                                 fontWeight: 650,
                                             }}
-                                        />
+                                            />
+                                            {renderAccordionContent?.(item)}
+                                        </div>
                                     )}
                                 </div>
                             )
@@ -310,10 +429,25 @@ export function HelmetHUD({
                     </aside>
                 </div>
             )}
+            {overlayComponent}
             <style>{`
                 @keyframes hudFramePulse {
                     0%, 100% { opacity: 0.72; }
                     50% { opacity: 1; }
+                }
+                @keyframes hudZoomScan {
+                    0%, 100% { transform: translateY(-34px); opacity: 0.68; }
+                    50% { transform: translateY(34px); opacity: 1; }
+                }
+                @keyframes hudZoomReadout {
+                    0%, 100% { opacity: 0.58; }
+                    50% { opacity: 1; }
+                }
+                .hud-zoom-thumb {
+                    animation: hudZoomScan 3.8s ease-in-out infinite;
+                }
+                .hud-zoom-readout {
+                    animation: hudZoomReadout 1.8s ease-in-out infinite;
                 }
             `}</style>
         </section>

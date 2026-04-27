@@ -41,11 +41,33 @@ export const saveSceneUnitState = (sceneUnits) => {
         const root = unit.root
         if (!root) return
 
+        const nodes = []
+        root.traverse((object) => {
+            const material = object.material
+            nodes.push({
+                object,
+                position: object.position.clone(),
+                rotation: object.rotation.clone(),
+                quaternion: object.quaternion.clone(),
+                scale: object.scale.clone(),
+                visible: object.visible,
+                material: material
+                    ? {
+                          color: material.color?.clone?.(),
+                          emissive: material.emissive?.clone?.(),
+                          emissiveIntensity: material.emissiveIntensity,
+                      }
+                    : null,
+            })
+        })
+
         savedState[name] = {
             position: root.position.clone(),
             rotation: root.rotation.clone(),
+            quaternion: root.quaternion.clone(),
             scale: root.scale.clone(),
             visible: root.visible,
+            nodes,
         }
     })
 
@@ -60,14 +82,48 @@ export const restoreSceneUnitVisibility = (sceneUnits) => {
 }
 
 export const restoreSceneUnitState = (sceneUnits, savedState) => {
+    const restoredObjects = new Set()
+
     Object.entries(sceneUnits).forEach(([name, unit]) => {
         const root = unit?.root
         const saved = savedState?.[name]
         if (!root || !saved) return
 
-        root.position.copy(saved.position)
-        root.rotation.copy(saved.rotation)
-        root.scale.copy(saved.scale)
-        root.visible = saved.visible
+        const restoreObject = (object, state) => {
+            if (!object || !state || restoredObjects.has(object)) return
+
+            object.position.copy(state.position)
+            object.quaternion.copy(state.quaternion)
+            object.rotation.copy(state.rotation)
+            object.scale.copy(state.scale)
+            object.visible = state.visible
+            if (state.material && object.material) {
+                if (state.material.color && object.material.color) {
+                    object.material.color.copy(state.material.color)
+                }
+                if (state.material.emissive && object.material.emissive) {
+                    object.material.emissive.copy(state.material.emissive)
+                }
+                if (
+                    state.material.emissiveIntensity !== undefined &&
+                    object.material.emissiveIntensity !== undefined
+                ) {
+                    object.material.emissiveIntensity =
+                        state.material.emissiveIntensity
+                }
+            }
+            object.updateMatrix()
+            object.updateMatrixWorld(true)
+            restoredObjects.add(object)
+        }
+
+        if (saved.nodes?.length) {
+            saved.nodes.forEach((nodeState) => {
+                restoreObject(nodeState.object, nodeState)
+            })
+            return
+        }
+
+        restoreObject(root, saved)
     })
 }

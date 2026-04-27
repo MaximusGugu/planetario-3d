@@ -72,6 +72,18 @@ const getSphereTextureDirection = ({ u, v }) => {
     ).normalize()
 }
 
+const getSphereLatLonDirection = ({ latitude = 0, longitude = 0 }) => {
+    const lat = THREE.MathUtils.degToRad(latitude)
+    const lon = THREE.MathUtils.degToRad(longitude)
+    const cosLat = Math.cos(lat)
+
+    return new THREE.Vector3(
+        -Math.cos(lon) * cosLat,
+        Math.sin(lat),
+        Math.sin(lon) * cosLat
+    ).normalize()
+}
+
 const getYRotationToFaceCamera = ({ baseDirection, object, camera }) => {
     if (!baseDirection || !object?.parent || !camera) return null
 
@@ -100,6 +112,8 @@ const getYRotationToFaceCamera = ({ baseDirection, object, camera }) => {
 const DEFAULT_HUD_FOCUS_TARGETS = {
     "jupiter-great-red-spot": {
         bodyName: "Jupiter",
+        textureU: 0.365,
+        textureV: 0.625,
         viewportHeightKey: "greatRedSpotViewportHeight",
         surfaceOffsetKey: "greatRedSpotSurfaceOffset",
         rotationYKey: "greatRedSpotRotationY",
@@ -177,6 +191,8 @@ export default function SolarSystemRenderer(externalProps) {
     const [activeScene, setActiveScene] = useState(null)
     const [simMenuOpen, setSimMenuOpen] = useState(false)
     const activeSceneRef = useRef(null)
+    const runtimeSceneConfigRef = useRef(null)
+    const [runtimeSceneSettings, setRuntimeSceneSettings] = useState(null)
     const sceneStartTimeRef = useRef(0)
     const originalScalesRef = useRef({})
 
@@ -409,6 +425,41 @@ export default function SolarSystemRenderer(externalProps) {
         }
     }
 
+    const getHudFocusLocalDirection = (featureConfig) => {
+        if (!featureConfig) return null
+
+        if (
+            Number.isFinite(featureConfig.textureU) &&
+            Number.isFinite(featureConfig.textureV)
+        ) {
+            return getSphereTextureDirection({
+                u: featureConfig.textureU,
+                v: featureConfig.textureV,
+            })
+        }
+
+        if (
+            Number.isFinite(featureConfig.latitude) &&
+            Number.isFinite(featureConfig.longitude)
+        ) {
+            return getSphereLatLonDirection({
+                latitude: featureConfig.latitude,
+                longitude: featureConfig.longitude,
+            })
+        }
+
+        const localDirection = featureConfig.localDirection
+        if (Array.isArray(localDirection) && localDirection.length >= 3) {
+            return new THREE.Vector3(
+                localDirection[0],
+                localDirection[1],
+                localDirection[2]
+            ).normalize()
+        }
+
+        return null
+    }
+
     const getHudFocusWorldPosition = (featureConfig) => {
         if (!featureConfig?.bodyName) return null
 
@@ -416,22 +467,12 @@ export default function SolarSystemRenderer(externalProps) {
         const body = bodyUnit?.body
         if (!body) return null
 
-        if (featureConfig.id === "jupiter-great-red-spot") {
-            const jupiterRadius =
-                getObjectWorldRadius(getSceneUnit("Jupiter")) ??
-                DEFAULT_SYSTEM.Jupiter.radius
-            const spotLocal = jupiterGreatRedSpotDirectionRef.current
-                .clone()
-                .multiplyScalar(
-                    jupiterRadius *
-                        (propsRef.current.greatRedSpotSurfaceOffset ?? 0.98)
-                )
+        const localDirection =
+            featureConfig.id === "jupiter-great-red-spot"
+                ? jupiterGreatRedSpotDirectionRef.current.clone()
+                : getHudFocusLocalDirection(featureConfig)
 
-            return jupiterGroup.current.localToWorld(spotLocal)
-        }
-
-        const localDirection = featureConfig.localDirection
-        if (Array.isArray(localDirection) && localDirection.length >= 3) {
+        if (localDirection) {
             const radius =
                 getObjectWorldRadius(bodyUnit) ??
                 body.userData?.baseRadius ??
@@ -442,18 +483,45 @@ export default function SolarSystemRenderer(externalProps) {
                     ? propsRef.current[featureConfig.surfaceOffsetKey]
                     : null) ??
                 1
-            const local = new THREE.Vector3(
-                localDirection[0],
-                localDirection[1],
-                localDirection[2]
-            )
-                .normalize()
+            const local = localDirection
+                .clone()
                 .multiplyScalar(radius * surfaceOffset)
 
             return body.localToWorld(local)
         }
 
         return body.getWorldPosition(new THREE.Vector3())
+    }
+
+    const getHudFocusCameraDirection = (featureConfig) => {
+        if (!featureConfig) return null
+
+        const direction = featureConfig.cameraDirection
+        if (Array.isArray(direction) && direction.length >= 3) {
+            return new THREE.Vector3(
+                direction[0],
+                direction[1],
+                direction[2]
+            ).normalize()
+        }
+
+        const localDirection = featureConfig.cameraLocalDirection
+        if (Array.isArray(localDirection) && localDirection.length >= 3) {
+            const body = getSceneUnit(featureConfig.bodyName)?.body
+            if (!body) return null
+
+            const center = body.getWorldPosition(new THREE.Vector3())
+            const localPoint = new THREE.Vector3(
+                localDirection[0],
+                localDirection[1],
+                localDirection[2]
+            ).normalize()
+            const worldPoint = body.localToWorld(localPoint)
+
+            return worldPoint.sub(center).normalize()
+        }
+
+        return null
     }
 
     const getHudFocusViewportHeight = (featureConfig) => {
@@ -492,17 +560,44 @@ export default function SolarSystemRenderer(externalProps) {
         setCfg((prev) => ({ ...prev, hideUI: false }))
     }
 
-    const handleHudFeatureFocus = (feature) => {
-        const featureConfig = getHudFocusTargetConfig(feature)
-        const nextFeature = featureConfig?.id || null
+    const returnFromCloseUpToHud = () => {
+        const targetName = selectedMoonRef.current || focusedMoonRef.current
+        if (!targetName) return false
 
-        setHudFeatureFocus(nextFeature)
-        hudFeatureFocusRef.current = nextFeature
+        const landingTarget = getLandingTargetName(targetName)
+        freeNavigationRef.current = false
+        setFreeFlightMode(false)
+        setSelectedTarget(landingTarget)
+        focusedMoonRef.current = targetName
+        setFocusedMoon(targetName)
+        setHudFeatureFocus(null)
+        hudFeatureFocusRef.current = null
+        setIsInsideJupiter(false)
+        isInsideRef.current = false
+        currentViewRef.current = { mode: "focus", target: targetName }
+
+        const landingDistance = getLandingDistance(targetName)
+        targetDistance.current = landingDistance
+        currentDistance.current = Math.max(
+            currentDistance.current,
+            landingDistance
+        )
+
+        setCfg((prev) => ({ ...prev, hideUI: false }))
+        return true
+    }
+
+    const closeUp = (feature) => {
+        const featureConfig = getHudFocusTargetConfig(feature)
+        if (!featureConfig) return
 
         if (featureConfig?.bodyName) {
             if (selectedMoonRef.current !== featureConfig.bodyName) {
                 focusOn(featureConfig.bodyName)
             }
+
+            setHudFeatureFocus(featureConfig)
+            hudFeatureFocusRef.current = featureConfig
 
             const bodyUnit = getSceneUnit(featureConfig.bodyName)
             const bodyRadius = getObjectWorldRadius(bodyUnit)
@@ -519,12 +614,112 @@ export default function SolarSystemRenderer(externalProps) {
 
             targetDistance.current =
                 featureDistance ?? getLandingDistance(featureConfig.bodyName)
+            currentViewRef.current = {
+                mode: "closeUp",
+                target: featureConfig.bodyName,
+                feature: featureConfig.id,
+            }
             return
         }
+
+        setHudFeatureFocus(featureConfig)
+        hudFeatureFocusRef.current = featureConfig
 
         if (selectedMoonRef.current) {
             targetDistance.current = getLandingDistance(selectedMoonRef.current)
         }
+    }
+
+    const handleHudFeatureFocus = (feature) => {
+        closeUp(feature)
+    }
+
+    const handleHudZoom = (direction) => {
+        const p = propsRef.current
+        const zoomFactor = direction > 0 ? 0.82 : 1.18
+
+        hasUserInteractedRef.current = true
+        targetDistance.current = THREE.MathUtils.clamp(
+            targetDistance.current * zoomFactor,
+            p.minZoom ?? 0.05,
+            p.maxZoomLimit ?? 1000
+        )
+    }
+
+    const startFeatureScene = (sceneConfig) => {
+        if (!sceneConfig) return
+
+        if (runtimeSceneConfigRef.current) {
+            runtimeSceneConfigRef.current = sceneConfig
+            setRuntimeSceneSettings(sceneConfig)
+            return
+        }
+
+        pushCurrentViewToHistory()
+        saveSceneUnitState()
+
+        const sceneId = sceneConfig.id || "featureScene"
+        runtimeSceneConfigRef.current = sceneConfig
+        setRuntimeSceneSettings(sceneConfig)
+        activeSceneRef.current = sceneId
+        sceneStartTimeRef.current = performance.now()
+        hasUserInteractedRef.current = false
+
+        setSelectedTarget(null)
+        setActiveScene(sceneId)
+        setHudFeatureFocus(null)
+        hudFeatureFocusRef.current = null
+        setIsInsideJupiter(false)
+        isInsideRef.current = false
+        freeNavigationRef.current = false
+        setFreeFlightMode(false)
+        currentViewRef.current = {
+            mode: "featureScene",
+            target: sceneId,
+        }
+
+        if (sceneConfig.camera) {
+            targetDistance.current = sceneConfig.camera.distance
+            currentDistance.current = sceneConfig.camera.distance
+            cameraTarget.current.set(
+                sceneConfig.camera.target[0],
+                sceneConfig.camera.target[1],
+                sceneConfig.camera.target[2]
+            )
+        }
+
+        setCfg((prev) => ({ ...prev, hideUI: false }))
+    }
+
+    const updateFeatureScene = (sceneConfig) => {
+        if (!sceneConfig) return
+
+        runtimeSceneConfigRef.current = sceneConfig
+        setRuntimeSceneSettings(sceneConfig)
+        if (!activeSceneRef.current) {
+            startFeatureScene(sceneConfig)
+        }
+    }
+
+    const stopFeatureScene = (returnTarget = "Jupiter") => {
+        viewHistoryRef.current.pop()
+        runtimeSceneConfigRef.current = null
+        setRuntimeSceneSettings(null)
+        restoreSceneUnitState()
+        activeSceneRef.current = null
+        setActiveScene(null)
+        sceneOverrideRef.current = {}
+        restoreSceneUnitVisibility()
+
+        const targetName = returnTarget || "Jupiter"
+        freeNavigationRef.current = false
+        setFreeFlightMode(false)
+        setSelectedTarget(targetName)
+        focusedMoonRef.current = targetName
+        setFocusedMoon(targetName)
+        currentViewRef.current = { mode: "focus", target: targetName }
+        targetDistance.current = getLandingDistance(targetName)
+        setCfg((prev) => ({ ...prev, hideUI: false }))
     }
 
     const decorateOverlay = (overlay) => {
@@ -532,6 +727,11 @@ export default function SolarSystemRenderer(externalProps) {
 
         return React.cloneElement(overlay, {
             onFeatureFocus: handleHudFeatureFocus,
+            onCloseUp: closeUp,
+            onZoomDelta: handleHudZoom,
+            onStartFeatureScene: startFeatureScene,
+            onUpdateFeatureScene: updateFeatureScene,
+            onStopFeatureScene: stopFeatureScene,
         })
     }
 
@@ -586,9 +786,9 @@ export default function SolarSystemRenderer(externalProps) {
 
     const returnToActiveSceneOverview = () => {
         const sceneName = activeSceneRef.current
-        const scenePreset = sceneName
-            ? getSceneConfig(propsRef.current, sceneName)
-            : null
+        const scenePreset =
+            runtimeSceneConfigRef.current ||
+            (sceneName ? getSceneConfig(propsRef.current, sceneName) : null)
 
         if (!scenePreset) return false
 
@@ -629,6 +829,8 @@ export default function SolarSystemRenderer(externalProps) {
 
         saveSceneUnitState()
 
+        runtimeSceneConfigRef.current = null
+        setRuntimeSceneSettings(null)
         activeSceneRef.current = sceneName
         sceneStartTimeRef.current = performance.now()
         hasUserInteractedRef.current = false
@@ -663,6 +865,8 @@ export default function SolarSystemRenderer(externalProps) {
     const stopScene = () => {
         const previousView = viewHistoryRef.current.pop()
 
+        runtimeSceneConfigRef.current = null
+        setRuntimeSceneSettings(null)
         restoreSceneUnitState()
         activeSceneRef.current = null
         setActiveScene(null)
@@ -768,6 +972,11 @@ export default function SolarSystemRenderer(externalProps) {
     }
 
     const goBackView = () => {
+        if (hudFeatureFocusRef.current && selectedMoonRef.current) {
+            if (returnFromCloseUpToHud()) return
+            return
+        }
+
         if (focusedMoonRef.current) {
             if (activeSceneRef.current && returnToActiveSceneOverview()) {
                 return
@@ -1537,9 +1746,9 @@ export default function SolarSystemRenderer(externalProps) {
             const ctrl = controlsRef.current
             const cam = cameraRef.current
             const activeSceneName = activeSceneRef.current
-            const activeSceneConfig = activeSceneName
-                ? getSceneConfig(p, activeSceneName)
-                : null
+            const activeSceneConfig =
+                runtimeSceneConfigRef.current ||
+                (activeSceneName ? getSceneConfig(p, activeSceneName) : null)
             const isRealScaleScene = activeSceneName === "realScaleLine"
             if (sunMesh.material?.color) {
                 if (isRealScaleScene) {
@@ -1888,9 +2097,15 @@ export default function SolarSystemRenderer(externalProps) {
 
                         cameraTarget.current.copy(focusWorldPos)
 
-                        const direction = new THREE.Vector3()
-                            .subVectors(cam.position, ctrl.target)
-                            .normalize()
+                        const direction =
+                            hudFocusWorldPos && hudFocusConfig
+                                ? (getHudFocusCameraDirection(hudFocusConfig) ??
+                                  new THREE.Vector3()
+                                      .subVectors(cam.position, ctrl.target)
+                                      .normalize())
+                                : new THREE.Vector3()
+                                      .subVectors(cam.position, ctrl.target)
+                                      .normalize()
 
                         if (!Number.isFinite(direction.x)) {
                             direction.set(0, 0, 1)
@@ -2007,6 +2222,17 @@ export default function SolarSystemRenderer(externalProps) {
                 Object.entries(planetPivotsRef.current).forEach(
                     ([name, item]) => {
                         if (item.type !== "planet") return
+                        if (name === "Jupiter") return
+                        if (!item.mesh) return
+
+                        item.mesh.rotation.y +=
+                            (c.rotateSpeed ?? 0.5) * 0.005
+                    }
+                )
+
+                Object.entries(planetPivotsRef.current).forEach(
+                    ([name, item]) => {
+                        if (item.type !== "planet") return
                         if (isRealScaleScene) return
 
                         const selected = selectedMoonRef.current
@@ -2115,6 +2341,12 @@ export default function SolarSystemRenderer(externalProps) {
 
             Object.values(sceneUnitsRef.current).forEach((unit) => {
                 if (unit?.body?.material && (unit.type === "planet" || unit.type === "moon")) {
+                    if (
+                        sceneOverrideRef.current?.[unit.name]
+                            ?.emissiveIntensity !== undefined
+                    ) {
+                        return
+                    }
                     if (unit.body.material.emissiveIntensity !== undefined) {
                         unit.body.material.emissiveIntensity = 0
                     }
@@ -2333,6 +2565,14 @@ export default function SolarSystemRenderer(externalProps) {
         return selectedMoonRef.current === "Jupiter"
     }
 
+    const activeRuntimeSceneSettings = runtimeSceneSettings || {}
+    const runtimeBackground = activeRuntimeSceneSettings.background || {}
+    const hideStarTravel =
+        !!activeRuntimeSceneSettings.hideStarTravel ||
+        runtimeBackground.starTravel === false
+    const hideNavigation = !!activeRuntimeSceneSettings.hideNavigation
+    const hideLabels = !!activeRuntimeSceneSettings.hideLabels
+
     const activeButtonStyle = {
         opacity: 1,
         scale: 1.08,
@@ -2361,28 +2601,30 @@ export default function SolarSystemRenderer(externalProps) {
                 }
             }}
         >
-            <StarTravel {...props.starTravel} />
+            {!hideStarTravel && <StarTravel {...props.starTravel} />}
 
             {isLoadingAssets && <LoadingOverlay progress={loadingProgress} />}
 
-            <LabelsLayer
-                labels={labels}
-                focusedMoon={focusedMoon}
-                selectedName={selectedName}
-                isInsideJupiter={isInsideJupiter}
-                cleanNavigationMode={cleanNavigationMode}
-                freeFlightMode={freeFlightMode}
-                autoHideUI={activeScene ? false : autoHideUI}
-                cfg={cfg}
-                config={props}
-                isJupiterChildTarget={isJupiterChildTarget}
-                isJupiterContext={isJupiterContext}
-                getDisplayName={getDisplayName}
-                onFocus={focusOn}
-                hudOpen={!!ActiveOverlay || !!InteriorOverlay}
-                hoveredObjectName={hoveredObjectName}
-                labelsOnlyOnHover={activeScene === "realScaleLine"}
-            />
+            {!hideLabels && (
+                <LabelsLayer
+                    labels={labels}
+                    focusedMoon={focusedMoon}
+                    selectedName={selectedName}
+                    isInsideJupiter={isInsideJupiter}
+                    cleanNavigationMode={cleanNavigationMode}
+                    freeFlightMode={freeFlightMode}
+                    autoHideUI={activeScene ? false : autoHideUI}
+                    cfg={cfg}
+                    config={props}
+                    isJupiterChildTarget={isJupiterChildTarget}
+                    isJupiterContext={isJupiterContext}
+                    getDisplayName={getDisplayName}
+                    onFocus={focusOn}
+                    hudOpen={!!ActiveOverlay || !!InteriorOverlay}
+                    hoveredObjectName={hoveredObjectName}
+                    labelsOnlyOnHover={activeScene === "realScaleLine"}
+                />
+            )}
             {cleanNavigationMode && (
                 <div
                     style={{
@@ -2416,63 +2658,65 @@ export default function SolarSystemRenderer(externalProps) {
                     }}
                 />
             )}
-            <BottomNavigation
-                activeButtonStyle={activeButtonStyle}
-                activeScene={activeScene}
-                autoHideUI={autoHideUI}
-                cleanNavigationMode={cleanNavigationMode}
-                cfg={cfg}
-                freeFlightMode={freeFlightMode}
-                isFullscreen={isFullscreen}
-                menuForceHidden={menuForceHidden}
-                menuHoverZone={menuHoverZone}
-                scenes={props.scenes}
-                simMenuOpen={simMenuOpen}
-                onBack={() => navigate(-1)}
-                onForward={() => navigate(1)}
-                onGoBackView={goBackView}
-                onReleaseToSpace={releaseToSpace}
-                onSceneClick={(sceneId) => {
-                    startScene(sceneId)
-                    setSimMenuOpen(false)
-                }}
-                onSettingsToggle={(event) => {
-                    const buttonRect =
-                        event.currentTarget.getBoundingClientRect()
-                    const containerRect =
-                        containerRef.current?.getBoundingClientRect()
-
-                    if (containerRect) {
-                        setSettingsAnchorX(
-                            buttonRect.left +
-                                buttonRect.width / 2 -
-                                containerRect.left
-                        )
-                    }
-
-                    setShowSettings(!showSettings)
-                }}
-                onSimMenuToggle={() => {
-                    if (activeScene) {
-                        stopScene()
+            {!hideNavigation && (
+                <BottomNavigation
+                    activeButtonStyle={activeButtonStyle}
+                    activeScene={activeScene}
+                    autoHideUI={autoHideUI}
+                    cleanNavigationMode={cleanNavigationMode}
+                    cfg={cfg}
+                    freeFlightMode={freeFlightMode}
+                    isFullscreen={isFullscreen}
+                    menuForceHidden={menuForceHidden}
+                    menuHoverZone={menuHoverZone}
+                    scenes={props.scenes}
+                    simMenuOpen={simMenuOpen}
+                    onBack={() => navigate(-1)}
+                    onForward={() => navigate(1)}
+                    onGoBackView={goBackView}
+                    onReleaseToSpace={releaseToSpace}
+                    onSceneClick={(sceneId) => {
+                        startScene(sceneId)
                         setSimMenuOpen(false)
-                    } else if (props.scenes?.length) {
-                        setSimMenuOpen((prev) => !prev)
-                    }
-                }}
-                onToggleFullscreen={toggleFullscreen}
-                onToggleHideUI={toggleHideUI}
-                onPointerEnter={() => {
-                    if (Date.now() < menuRevealUnlockAtRef.current) return
-                    if (menuForceHidden) return
-                    setMenuHoverZone(true)
-                }}
-                onPointerLeave={() => {
-                    hideMenuUntilMouseLeavesRef.current = false
-                    ignoreMenuHoverRef.current = false
-                    setMenuHoverZone(false)
-                }}
-            />
+                    }}
+                    onSettingsToggle={(event) => {
+                        const buttonRect =
+                            event.currentTarget.getBoundingClientRect()
+                        const containerRect =
+                            containerRef.current?.getBoundingClientRect()
+
+                        if (containerRect) {
+                            setSettingsAnchorX(
+                                buttonRect.left +
+                                    buttonRect.width / 2 -
+                                    containerRect.left
+                            )
+                        }
+
+                        setShowSettings(!showSettings)
+                    }}
+                    onSimMenuToggle={() => {
+                        if (activeScene) {
+                            stopScene()
+                            setSimMenuOpen(false)
+                        } else if (props.scenes?.length) {
+                            setSimMenuOpen((prev) => !prev)
+                        }
+                    }}
+                    onToggleFullscreen={toggleFullscreen}
+                    onToggleHideUI={toggleHideUI}
+                    onPointerEnter={() => {
+                        if (Date.now() < menuRevealUnlockAtRef.current) return
+                        if (menuForceHidden) return
+                        setMenuHoverZone(true)
+                    }}
+                    onPointerLeave={() => {
+                        hideMenuUntilMouseLeavesRef.current = false
+                        ignoreMenuHoverRef.current = false
+                        setMenuHoverZone(false)
+                    }}
+                />
+            )}
             {showSettings && (
                 <SettingsPanel
                     key={settingsAnchorX ?? "center"}

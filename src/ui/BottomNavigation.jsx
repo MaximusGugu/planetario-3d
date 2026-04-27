@@ -1,11 +1,11 @@
 const bottomHUDBarStyle = {
     position: "absolute",
-    bottom: 40,
+    bottom: 60,
     left: "50%",
     transform: "translateX(-50%)",
     display: "flex",
     gap: 12,
-    padding: "10px 24px",
+    padding: "10px 15px",
     background: "rgba(0,0,0,0.3)",
     borderRadius: 50,
     backdropFilter: "blur(20px)",

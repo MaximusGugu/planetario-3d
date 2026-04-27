@@ -4,17 +4,17 @@ const accordionItems = [
     {
         title: "Casca de gelo",
         content:
-            "A superficie de Europa e uma crosta de gelo cruzada por linhas, fraturas e regioes jovens. Poucas crateras indicam renovacao geologica.",
+            "A superfície de Europa é uma crosta de gelo cruzada por linhas, fraturas e regiões jovens. Poucas crateras indicam renovação geológica.",
     },
     {
-        title: "Oceano subterraneo",
+        title: "Oceano subterrâneo",
         content:
-            "Evidencias sugerem um oceano global sob o gelo. Esse ambiente pode ter agua liquida, sais e energia quimica.",
+            "Evidências sugerem um oceano global sob o gelo. Esse ambiente pode ter água líquida, sais e energia química.",
     },
     {
-        title: "Forcas de mare",
+        title: "Forças de maré",
         content:
-            "A gravidade de Jupiter e das outras luas flexiona Europa, gerando calor interno que pode ajudar a manter agua liquida abaixo da superficie.",
+            "A gravidade de Júpiter e das outras luas flexiona Europa, gerando calor interno que pode ajudar a manter água líquida abaixo da superfície.",
     },
 ]
 
@@ -25,7 +25,7 @@ export default function EuropaHUD() {
             subtitle="Europa · Jupiter II"
             accordionItems={accordionItems}
             intro={
-                "Europa e uma das luas galileanas de Jupiter e um dos mundos mais promissores para estudar ambientes potencialmente habitaveis. Vista de perto, ela parece lisa, gelada e marcada por cicatrizes lineares.\n\nSeu interesse cientifico vem do que pode existir abaixo: um oceano escondido sob quilometros de gelo."
+                "Europa é uma das luas galileanas de Júpiter e um dos mundos mais promissores para estudar ambientes potencialmente habitáveis. Vista de perto, ela parece lisa, gelada e marcada por cicatrizes lineares.\n\nSeu interesse científico vem do que pode existir abaixo: um oceano escondido sob quilômetros de gelo."
             }
         />
     )

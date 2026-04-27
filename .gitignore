@@ -1,5 +1,7 @@
 node_modules/
 dist/
+.vite/
+.codex-switch-backup/
 dev-server*.log
 *.local
 assets/index-*.js

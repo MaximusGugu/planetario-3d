@@ -24,6 +24,9 @@ export const buildSceneOverrides = ({ activeSceneConfig, getSceneUnit }) => {
                         THREE.MathUtils.degToRad(item.rotY ?? 0),
                         THREE.MathUtils.degToRad(item.rotZ ?? 0)
                     ),
+                    materialColor: item.materialColor,
+                    emissive: item.emissive,
+                    emissiveIntensity: item.emissiveIntensity,
                 }
             })
     }
@@ -94,6 +97,22 @@ export const applySceneOverrides = ({
             }
 
             return
+        }
+
+        const bodyMaterial = unit.body?.material
+        if (bodyMaterial) {
+            if (override.materialColor !== undefined && bodyMaterial.color) {
+                bodyMaterial.color.set(override.materialColor)
+            }
+            if (override.emissive !== undefined && bodyMaterial.emissive) {
+                bodyMaterial.emissive.set(override.emissive)
+            }
+            if (
+                override.emissiveIntensity !== undefined &&
+                bodyMaterial.emissiveIntensity !== undefined
+            ) {
+                bodyMaterial.emissiveIntensity = override.emissiveIntensity
+            }
         }
 
         const targetScale = originalScales[name]

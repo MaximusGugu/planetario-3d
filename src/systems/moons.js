@@ -42,6 +42,8 @@ export const updateMoonSystems = ({
                 moon.mesh.quaternion.copy(targetQuat)
             }
 
+            moon.mesh.rotateY((rotateSpeed ?? 0.5) * 0.003)
+
             return
         }
 

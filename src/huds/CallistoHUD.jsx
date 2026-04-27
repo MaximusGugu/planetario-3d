@@ -2,19 +2,19 @@ import InfoHUD from "./InfoHUD.jsx"
 
 const accordionItems = [
     {
-        title: "Superficie antiga",
+        title: "Superfície antiga",
         content:
-            "Calisto e um dos terrenos mais antigos e craterados do Sistema Solar. Sua superficie registra bilhoes de anos de impactos quase sem renovacao intensa.",
+            "Calisto é um dos terrenos mais antigos e craterados do Sistema Solar. Sua superfície registra bilhões de anos de impactos quase sem renovação intensa.",
     },
     {
         title: "Gelo e rocha",
         content:
-            "A lua e composta por uma mistura de gelo, rocha e materiais escuros. Essa composicao cria um visual frio, manchado e muito marcado por cicatrizes.",
+            "A lua é composta por uma mistura de gelo, rocha e materiais escuros. Essa composição cria um visual frio, manchado e muito marcado por cicatrizes.",
     },
     {
         title: "Mundo preservado",
         content:
-            "Por estar mais distante de Jupiter que Io e Europa, Calisto sofre menos aquecimento de mare. Isso ajuda a preservar sua aparencia antiga.",
+            "Por estar mais distante de Júpiter que Io e Europa, Calisto sofre menos aquecimento de maré. Isso ajuda a preservar sua aparência antiga.",
     },
 ]
 
@@ -25,7 +25,7 @@ export default function CallistoHUD() {
             subtitle="Kallisto · Jupiter IV"
             accordionItems={accordionItems}
             intro={
-                "Calisto e a lua galileana mais externa de Jupiter. Ela parece silenciosa e antiga: um mundo escuro, gelado e coberto por crateras que preservam a memoria de impactos desde o inicio do Sistema Solar.\n\nAo contrario de luas mais ativas, Calisto mostra pouca remodelacao recente. Isso transforma sua superficie em um arquivo visual da historia orbital ao redor de Jupiter."
+                "Calisto é a lua galileana mais externa de Júpiter. Ela parece silenciosa e antiga: um mundo escuro, gelado e coberto por crateras que preservam a memória de impactos desde o início do Sistema Solar.\n\nAo contrário de luas mais ativas, Calisto mostra pouca remodelação recente. Isso transforma sua superfície em um arquivo visual da história orbital ao redor de Júpiter."
             }
         />
     )
