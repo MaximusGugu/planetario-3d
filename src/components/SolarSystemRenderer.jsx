@@ -1488,26 +1488,70 @@ export default function SolarSystemRenderer(externalProps) {
             return texture
         }
 
-        const sunGlow = new THREE.Sprite(
-            new THREE.SpriteMaterial({
-                map: props.sunGlowTexture
-                    ? loadTexture(props.sunGlowTexture)
-                    : makeGlowTexture(),
-                color: 0xffffff,
-                transparent: true,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false,
-                depthTest: true,
-                opacity: props.sunGlowOpacity ?? 0.18,
-            })
-        )
+        // ☀️ BLOOM DUPLO PROCEDURAL (Substitui os Sprites que atravessavam planetas)
+        const sunRadius = props.sunSize || 3
+        
+        // 1. Núcleo Denso (Inner Glow)
+        const innerGlowGeom = new THREE.SphereGeometry(sunRadius * 1.25, 64, 64)
+        const innerGlowMat = new THREE.ShaderMaterial({
+            uniforms: { 
+                color: { value: new THREE.Color(0xffcc33) },
+                opacity: { value: 0.8 }
+            },
+            vertexShader: `
+                varying vec3 vNormal;
+                void main() {
+                    vNormal = normalize(normalMatrix * normal);
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform vec3 color;
+                uniform float opacity;
+                varying vec3 vNormal;
+                void main() {
+                    float intensity = pow(vNormal.z, 2.5);
+                    gl_FragColor = vec4(color, intensity * opacity);
+                }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+        })
+        const innerGlow = new THREE.Mesh(innerGlowGeom, innerGlowMat)
+        innerGlow.name = "Sun_InnerGlow"
+        sunMesh.add(innerGlow)
 
-        sunGlow.material.toneMapped = false
-        sunGlow.name = "Sun Glow"
-        sunGlow.scale.setScalar(
-            (props.sunSize || 3) * (props.sunGlowScale ?? 5)
-        )
-        sunMesh.add(sunGlow)
+        // 2. Coroa Esvoaçada (Outer Glow)
+        const outerGlowGeom = new THREE.SphereGeometry(sunRadius * 4.5, 64, 64)
+        const outerGlowMat = new THREE.ShaderMaterial({
+            uniforms: { 
+                color: { value: new THREE.Color(0xff6600) },
+                opacity: { value: 0.45 }
+            },
+            vertexShader: `
+                varying vec3 vNormal;
+                void main() {
+                    vNormal = normalize(normalMatrix * normal);
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform vec3 color;
+                uniform float opacity;
+                varying vec3 vNormal;
+                void main() {
+                    float intensity = pow(vNormal.z, 6.0);
+                    gl_FragColor = vec4(color, intensity * opacity);
+                }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+        })
+        const outerGlow = new THREE.Mesh(outerGlowGeom, outerGlowMat)
+        outerGlow.name = "Sun_OuterGlow"
+        sunMesh.add(outerGlow)
 
         const {
             sunLight,
@@ -2230,13 +2274,22 @@ export default function SolarSystemRenderer(externalProps) {
 
             const flareVisible = !isRealScaleScene && sunVisualBlend > 0.02
             sunFlareLight.visible = flareVisible
+            
             if (sunFlareSpriteRef.current) {
                 sunFlareSpriteRef.current.visible = flareVisible
-                sunFlareSpriteRef.current.material.opacity = sunVisualBlend
             }
-            sunGlow.visible = flareVisible
-            sunGlow.material.opacity =
-                (p.sunGlowOpacity ?? 0.18) * sunVisualBlend
+
+            const innerGlow = sunMesh.getObjectByName("Sun_InnerGlow")
+            const outerGlow = sunMesh.getObjectByName("Sun_OuterGlow")
+
+            if (innerGlow) {
+                innerGlow.visible = flareVisible
+                innerGlow.material.uniforms.opacity.value = 0.8 * sunVisualBlend
+            }
+            if (outerGlow) {
+                outerGlow.visible = flareVisible
+                outerGlow.material.uniforms.opacity.value = 0.45 * sunVisualBlend
+            }
             ringsGroup.current.rotation.x = THREE.MathUtils.degToRad(
                 p.ringsRotX || 0
             )

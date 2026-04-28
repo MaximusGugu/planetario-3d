@@ -94,21 +94,8 @@ export const createSunLighting = ({
 
     solarSystemGroup.add(sunFlareLight)
 
-    const sunFlareSprite = new THREE.Sprite(
-        new THREE.SpriteMaterial({
-            map: flareTexture0,
-            color: new THREE.Color(1, 1, 1),
-            transparent: true,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            depthTest: false,
-            toneMapped: false,
-        })
-    )
-    sunFlareSprite.scale.setScalar(config.sunFlareSpriteSize ?? 12)
-    sunFlareSprite.renderOrder = 1001
-    sunFlareSprite.frustumCulled = false
-    sunMesh.add(sunFlareSprite)
+    const sunFlareSprite = new THREE.Group() // Grupo vazio para não quebrar referências
+    sunFlareSprite.name = "Sun Flare Placeholder"
 
     const FOCUSED_LAYER = 3
 
