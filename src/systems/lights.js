@@ -14,8 +14,8 @@ export const createSunLighting = ({
     const flareTexture0 = config.sunFlareTexture
         ? loadTexture(config.sunFlareTexture)
         : loadTexture(
-              "https://threejs.org/examples/textures/lensflare/lensflare0.png"
-          )
+            "https://threejs.org/examples/textures/lensflare/lensflare0.png"
+        )
 
     const flareTexture3 = loadTexture(
         "https://threejs.org/examples/textures/lensflare/lensflare3.png"
@@ -94,8 +94,21 @@ export const createSunLighting = ({
 
     solarSystemGroup.add(sunFlareLight)
 
-    const sunFlareSprite = new THREE.Group() // Grupo vazio para não quebrar referências
-    sunFlareSprite.name = "Sun Flare Placeholder"
+    const sunFlareSprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+            map: flareTexture0,
+            color: new THREE.Color(1, 1, 1),
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            depthTest: false,
+            toneMapped: false,
+        })
+    )
+    sunFlareSprite.scale.setScalar(config.sunFlareSpriteSize ?? 12)
+    sunFlareSprite.renderOrder = 1001
+    sunFlareSprite.frustumCulled = false
+    sunMesh.add(sunFlareSprite)
 
     const FOCUSED_LAYER = 3
 
