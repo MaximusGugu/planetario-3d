@@ -1,10 +1,10 @@
-# Análise do Planetário 3D
+# Planetário
 
-O aplicativo é um **Planetário 3D** construído com **React** e **Three.js** (Vanilla Three.js integrado no React), além do uso de **GSAP** para animações e transições. Ele oferece uma experiência interativa rica para explorar o sistema solar, com renderização avançada (como efeitos de *bloom* e texturas) e interfaces de usuário (HUDs) dinâmicas baseadas no contexto de navegação.
+O aplicativo é um **Planetário** construído com **React** e **Three.js** (Vanilla Three.js integrado no React), além do uso de **GSAP** para animações e transições. Ele oferece uma experiência interativa rica para explorar o sistema solar, com renderização avançada (como efeitos de *bloom* e texturas) e interfaces de usuário (HUDs) dinâmicas baseadas no contexto de navegação.
 
 ---
 
-## 🚀 Funcionalidades Atuais (O que ele pode fazer)
+## Funcionalidades Atuais
 
 1. **Navegação 3D Dinâmica**:
    - **Modo Órbita / Foco**: Clicar ou selecionar um planeta/lua centraliza a câmera nele.
@@ -33,7 +33,7 @@ O aplicativo é um **Planetário 3D** construído com **React** e **Three.js** (
 
 ---
 
-## 🧱 Arquitetura e Blocos de Conteúdo
+## Arquitetura e Blocos de Conteúdo
 
 ### 1. `src/core/` (O Motor do Planetário)
 Responsável pelas mecânicas base do Three.js e interações.
