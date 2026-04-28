@@ -35,7 +35,7 @@ import {
 } from "../config/planets.js"
 import { getSceneConfig } from "../config/scenes.js"
 import { GrainShader, rendererConfig } from "../config/renderer.js"
-import { createSphere } from "../systems/planets.js"
+import { createEarth, createSphere } from "../systems/planets.js"
 import {
     createRingDebrisLayer,
     createRingPlane,
@@ -1356,6 +1356,12 @@ export default function SolarSystemRenderer(externalProps) {
         const makeSphere = ({
             name,
             textureUrl,
+            bumpMapUrl,
+            bumpScale,
+            emissiveMapUrl,
+            emissiveIntensity,
+            roughnessMapUrl,
+            metalnessMapUrl,
             radius,
             position,
             color,
@@ -1366,6 +1372,12 @@ export default function SolarSystemRenderer(externalProps) {
             createSphere({
                 name,
                 textureUrl,
+                bumpMapUrl,
+                bumpScale,
+                emissiveMapUrl,
+                emissiveIntensity,
+                roughnessMapUrl,
+                metalnessMapUrl,
                 radius,
                 position,
                 color,
@@ -1529,38 +1541,32 @@ export default function SolarSystemRenderer(externalProps) {
 
             solarSystemGroup.current.add(pivot)
 
-            const mesh = makeSphere({
-                name: planet.name,
-                textureUrl: planet.texture,
-                radius: planet.size,
-                position: [planet.dist, 0, 0],
-                color: planet.color,
-                segments: 48,
-            })
+            let mesh;
 
-            mesh.castShadow = true
-
-            pivot.add(mesh)
-
-            // 🌥️ NUVENS DA TERRA
             if (planet.name === "Earth") {
-                const cloudMesh = makeSphere({
-                    name: "Earth Clouds",
-                    textureUrl: props.earthCloudsTexture,
-                    radius: planet.size * 1.01,
+                const earthSystem = createEarth({
+                    radius: planet.size,
                     position: [planet.dist, 0, 0],
-                    color: 0xffffff,
+                    loadTexture,
+                    config: props,
+                })
+                pivot.add(earthSystem.root)
+                mesh = earthSystem.surface
+                
+                moonsRef.current["Earth_Clouds"] = earthSystem.clouds
+                moonsRef.current["Earth_Atmosphere"] = earthSystem.atmosphere
+                mesh.userData.isEarthShader = true
+            } else {
+                mesh = makeSphere({
+                    name: planet.name,
+                    textureUrl: planet.texture,
+                    radius: planet.size,
+                    position: [planet.dist, 0, 0],
+                    color: planet.color,
                     segments: 48,
                 })
-
-                cloudMesh.material.transparent = true
-                cloudMesh.material.opacity = props.earthCloudsOpacity ?? 0.5
-                cloudMesh.material.depthWrite = false
-
-                pivot.add(cloudMesh)
-
-                moonsRef.current["Earth_Clouds"] = cloudMesh
-                cloudMesh.userData.sceneParent = "Earth"
+                mesh.castShadow = true
+                pivot.add(mesh)
             }
 
             if (planet.name === "Earth") {
@@ -2125,6 +2131,24 @@ export default function SolarSystemRenderer(externalProps) {
             const sunWorldPos = new THREE.Vector3()
             sunMesh.getWorldPosition(sunWorldPos)
             sunFlareLight.position.copy(sunWorldPos)
+            // Earth Shader Uniforms
+            const earthPivot = planetPivotsRef.current['Earth']
+            if (earthPivot?.mesh?.userData?.isEarthShader) {
+                const earthMesh = earthPivot.mesh
+                const earthWorldPos = new THREE.Vector3()
+                earthMesh.getWorldPosition(earthWorldPos)
+                const earthToSun = new THREE.Vector3().subVectors(sunWorldPos, earthWorldPos).normalize()
+                earthToSun.applyMatrix4(cam.matrixWorldInverse).normalize()
+                earthMesh.material.uniforms.sunDirection.value.copy(earthToSun);
+            const cloudMesh = moonsRef.current['Earth_Clouds'];
+            if (cloudMesh?.material?.uniforms?.sunDirection) {
+                cloudMesh.material.uniforms.sunDirection.value.copy(earthToSun);
+            }
+            const atmosMesh = moonsRef.current['Earth_Atmosphere'];
+            if (atmosMesh?.material?.uniforms?.sunDirection) {
+                atmosMesh.material.uniforms.sunDirection.value.copy(earthToSun);
+            }
+            }
             getSceneUnit("AsteroidBelt")?.root?.userData?.asteroidMaterials?.forEach(
                 (material) => {
                     material.uniforms.sunWorldPosition.value.copy(sunWorldPos)
@@ -2538,9 +2562,9 @@ export default function SolarSystemRenderer(externalProps) {
                                         new THREE.Vector3()
                                             .subVectors(cam.position, ctrl.target)
                                             .normalize())
-                                : new THREE.Vector3()
-                                    .subVectors(cam.position, ctrl.target)
-                                    .normalize()
+                                    : new THREE.Vector3()
+                                        .subVectors(cam.position, ctrl.target)
+                                        .normalize()
 
                         if (!Number.isFinite(direction.x)) {
                             direction.set(0, 0, 1)
@@ -2822,7 +2846,7 @@ export default function SolarSystemRenderer(externalProps) {
                 sunMesh.rotation.y += 0.002
                 const clouds = moonsRef.current["Earth_Clouds"]
                 if (clouds) {
-                    clouds.rotation.y += 0.0008
+                    clouds.rotation.y += p.earthCloudsSpeed ?? 0.0003
                 }
             }
 
