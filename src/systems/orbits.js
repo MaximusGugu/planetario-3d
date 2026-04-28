@@ -42,6 +42,8 @@ export const createRingPlane = ({
     scale,
     opacity,
     alphaTest,
+    occlusionRadius,
+    occlusionSoftness,
     loadTexture,
     config,
 }) => {
@@ -85,6 +87,16 @@ export const createRingPlane = ({
                             ? (config.neptuneRingShadowWidth ?? 0.16)
                             : (config.ringShadowWidth ?? 0.18),
             },
+            ringStyle: {
+                value:
+                    name === "Uranus Rings"
+                        ? 1
+                        : name === "Neptune Rings"
+                          ? 2
+                          : 0,
+            },
+            occlusionRadius: { value: occlusionRadius ?? 0 },
+            occlusionSoftness: { value: occlusionSoftness ?? 0.035 },
             sunDir: { value: new THREE.Vector2(1, 0) },
         },
         vertexShader: `
@@ -101,18 +113,74 @@ export const createRingPlane = ({
             uniform float lightBoost;
             uniform float shadowStrength;
             uniform float shadowWidth;
+            uniform float ringStyle;
+            uniform float occlusionRadius;
+            uniform float occlusionSoftness;
             uniform vec2 sunDir;
 
             varying vec2 vUv;
 
+            float ringLine(float radius, float center, float width) {
+                return 1.0 - smoothstep(0.0, width, abs(radius - center));
+            }
+
             void main() {
                 vec4 tex = texture2D(map, vUv);
 
-                float alpha = tex.a * opacity;
-                if (alpha < alphaTestValue) discard;
-
                 vec2 center = vec2(0.5, 0.5);
                 vec2 p = vUv - center;
+                float r = length(p) * 2.0;
+                float proceduralAlpha = 0.0;
+                vec3 proceduralColor = tex.rgb;
+
+                if (ringStyle > 1.5) {
+                    float ringMask =
+                        smoothstep(0.38, 0.44, r) *
+                        (1.0 - smoothstep(0.92, 0.98, r));
+                    float fineLines =
+                        ringLine(r, 0.47, 0.011) +
+                        ringLine(r, 0.53, 0.01) +
+                        ringLine(r, 0.59, 0.009) +
+                        ringLine(r, 0.65, 0.008) +
+                        ringLine(r, 0.72, 0.008) +
+                        ringLine(r, 0.81, 0.009) +
+                        ringLine(r, 0.9, 0.01);
+                    fineLines = clamp(fineLines, 0.0, 1.0);
+                    proceduralAlpha = ringMask * fineLines * 0.58;
+                    proceduralColor = vec3(0.62, 0.64, 0.66);
+                } else if (ringStyle > 0.5) {
+                    float ringMask =
+                        smoothstep(0.36, 0.46, r) *
+                        (1.0 - smoothstep(0.9, 0.98, r));
+                    float outerGlow = ringLine(r, 0.88, 0.04);
+                    float innerBands =
+                        ringLine(r, 0.52, 0.014) +
+                        ringLine(r, 0.61, 0.012) +
+                        ringLine(r, 0.7, 0.011) +
+                        ringLine(r, 0.79, 0.011);
+                    innerBands = clamp(innerBands, 0.0, 1.0);
+                    proceduralAlpha =
+                        ringMask * (0.14 + innerBands * 0.3 + outerGlow * 0.55);
+                    proceduralColor = mix(
+                        vec3(0.42, 0.92, 1.0),
+                        vec3(1.0, 0.74, 0.42),
+                        outerGlow * 0.62
+                    );
+                }
+
+                float alpha = max(tex.a * opacity, proceduralAlpha * opacity);
+                if (occlusionRadius > 0.0) {
+                    float planetMask =
+                        1.0 - smoothstep(
+                            occlusionRadius,
+                            occlusionRadius + occlusionSoftness,
+                            r
+                        );
+                    float frontSide = smoothstep(-0.08, 0.18, p.y);
+                    alpha *= 1.0 - planetMask * frontSide;
+                }
+                if (alpha < alphaTestValue) discard;
+
                 vec2 dir = normalize(sunDir);
 
                 float towardSun = dot(normalize(p), dir);
@@ -123,7 +191,7 @@ export const createRingPlane = ({
                 float shadowBand = 1.0 - smoothstep(shadowWidth, shadowWidth + 0.08, sideDistance);
                 float shadow = behindPlanet * shadowBand * shadowStrength;
 
-                vec3 color = tex.rgb;
+                vec3 color = mix(tex.rgb, proceduralColor, min(1.0, proceduralAlpha * 1.6));
                 color *= 0.08 + lit * lightBoost;
                 color *= 1.0 - shadow;
 
@@ -141,6 +209,7 @@ export const createRingPlane = ({
         THREE.MathUtils.degToRad(rotZ || 0)
     )
     ring.scale.setScalar(scale || 1)
+    ring.renderOrder = 5
 
     return ring
 }
@@ -237,6 +306,7 @@ export const createRingDebrisLayer = ({
         debris.instanceColor.needsUpdate = true
     }
     debris.frustumCulled = false
+    debris.renderOrder = 6
     debris.visible = false
 
     return debris
@@ -253,6 +323,7 @@ export const createRingShadowShell = ({
     softness = 0.12,
     color = 0x050403,
     segments = 96,
+    faceOnFade = 0.25,
 }) => {
     const material = new THREE.ShaderMaterial({
         transparent: true,
@@ -264,18 +335,23 @@ export const createRingShadowShell = ({
             opacity: { value: opacity },
             width: { value: width },
             softness: { value: softness },
+            faceOnFade: { value: faceOnFade },
             sunWorldPosition: { value: new THREE.Vector3(0, 0, 0) },
         },
         vertexShader: `
             varying vec3 vLocalPosition;
             varying vec3 vWorldPosition;
             varying vec3 vWorldNormal;
+            varying vec3 vRingNormalWorld;
+            varying vec3 vShellCenterWorld;
 
             void main() {
                 vLocalPosition = position;
                 vec4 worldPosition = modelMatrix * vec4(position, 1.0);
                 vWorldPosition = worldPosition.xyz;
                 vWorldNormal = normalize(mat3(modelMatrix) * normal);
+                vRingNormalWorld = normalize(mat3(modelMatrix) * vec3(0.0, 1.0, 0.0));
+                vShellCenterWorld = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
                 gl_Position = projectionMatrix * viewMatrix * worldPosition;
             }
         `,
@@ -284,18 +360,27 @@ export const createRingShadowShell = ({
             uniform float opacity;
             uniform float width;
             uniform float softness;
+            uniform float faceOnFade;
             uniform vec3 sunWorldPosition;
 
             varying vec3 vLocalPosition;
             varying vec3 vWorldPosition;
             varying vec3 vWorldNormal;
+            varying vec3 vRingNormalWorld;
+            varying vec3 vShellCenterWorld;
 
             void main() {
                 float normalizedY = abs(normalize(vLocalPosition).y);
                 float band = 1.0 - smoothstep(width, width + softness, normalizedY);
                 vec3 toSun = normalize(sunWorldPosition - vWorldPosition);
                 float litSide = smoothstep(-0.2, 0.65, dot(normalize(vWorldNormal), toSun));
-                float alpha = band * litSide * opacity;
+                vec3 toCamera = normalize(cameraPosition - vWorldPosition);
+                vec3 centerToCamera = normalize(cameraPosition - vShellCenterWorld);
+                float faceOn = abs(dot(normalize(vRingNormalWorld), centerToCamera));
+                float facingCamera = max(dot(normalize(vWorldNormal), toCamera), 0.0);
+                float limbOrBack = 1.0 - smoothstep(0.22, 0.72, facingCamera);
+                float faceOnMask = mix(1.0, limbOrBack, smoothstep(0.38, 0.82, faceOn) * faceOnFade);
+                float alpha = band * litSide * faceOnMask * opacity;
 
                 if (alpha < 0.002) discard;
 
@@ -315,7 +400,7 @@ export const createRingShadowShell = ({
         THREE.MathUtils.degToRad(rotY || 0),
         THREE.MathUtils.degToRad(rotZ || 0)
     )
-    shell.renderOrder = 4
+    shell.renderOrder = 3
     shell.visible = false
 
     return shell

@@ -119,11 +119,28 @@ const getAngularRadius = ({ radius, distance }) => {
     return Math.asin(Math.min(1, radius / distance))
 }
 
+const getLabelsSignature = (labels) =>
+    labels
+        .map(
+            (label) =>
+                `${label.name}:${Math.round(label.x)}:${Math.round(label.y)}:${label.visible ? 1 : 0}`
+        )
+        .join("|")
+
+const formatPerfNumber = (value, digits = 0) =>
+    Number.isFinite(value) ? value.toFixed(digits) : "-"
+
 export default function SolarSystemRenderer(externalProps) {
     const props = useMemo(
         () => ({ ...rendererConfig, ...(externalProps || {}) }),
         [externalProps]
     )
+    const showPerformanceMonitor = useMemo(() => {
+        if (props.performanceMonitor) return true
+        if (typeof window === "undefined") return false
+
+        return new URLSearchParams(window.location.search).has("perf")
+    }, [props.performanceMonitor])
     const containerRef = useRef(null)
     const rendererRef = useRef(null)
     const controlsRef = useRef(null)
@@ -152,6 +169,24 @@ export default function SolarSystemRenderer(externalProps) {
     const neptuneRingsGroup = useRef(new THREE.Group())
     const neptuneRingDebrisRef = useRef(null)
     const ringShadowRefs = useRef({})
+    const labelsLastUpdateRef = useRef(0)
+    const labelsSignatureRef = useRef("")
+    const sceneOverrideCacheRef = useRef({
+        activeSceneName: null,
+        activeSceneConfig: null,
+        overrides: {},
+        activeSceneUnits: new Set(),
+        activeSceneChildParents: new Set(),
+        isCustomSceneActive: false,
+    })
+    const perfFrameRef = useRef({
+        lastUpdate: 0,
+        lastFrameTime: 0,
+        frames: 0,
+        frameTotal: 0,
+        fps: 0,
+        frameMs: 0,
+    })
     const sunPosLerp = useRef(new THREE.Vector3())
     const focusLightBlendRef = useRef(0)
     const focusLayerObjectRef = useRef(null)
@@ -192,6 +227,7 @@ export default function SolarSystemRenderer(externalProps) {
 
     const [isLoadingAssets, setIsLoadingAssets] = useState(true)
     const [loadingProgress, setLoadingProgress] = useState(0)
+    const [perfStats, setPerfStats] = useState(null)
 
     const [cfg, setCfg] = useState({
         sunIntensity: props.sunIntensity ?? 0.5,
@@ -1279,6 +1315,24 @@ export default function SolarSystemRenderer(externalProps) {
         planetPivotsRef.current = {}
         sceneUnitsRef.current = {}
         sceneUnitSavedStateRef.current = {}
+        labelsLastUpdateRef.current = 0
+        labelsSignatureRef.current = ""
+        sceneOverrideCacheRef.current = {
+            activeSceneName: null,
+            activeSceneConfig: null,
+            overrides: {},
+            activeSceneUnits: new Set(),
+            activeSceneChildParents: new Set(),
+            isCustomSceneActive: false,
+        }
+        perfFrameRef.current = {
+            lastUpdate: 0,
+            lastFrameTime: 0,
+            frames: 0,
+            frameTotal: 0,
+            fps: 0,
+            frameMs: 0,
+        }
 
         solarSystemGroup.current.clear()
         jupiterOrbitPivot.current.clear()
@@ -1399,6 +1453,8 @@ export default function SolarSystemRenderer(externalProps) {
             scale,
             opacity,
             alphaTest,
+            occlusionRadius,
+            occlusionSoftness,
         }) =>
             createRingPlane({
                 name,
@@ -1411,6 +1467,8 @@ export default function SolarSystemRenderer(externalProps) {
                 scale,
                 opacity,
                 alphaTest,
+                occlusionRadius,
+                occlusionSoftness,
                 loadTexture,
                 config: props,
             })
@@ -1541,7 +1599,9 @@ export default function SolarSystemRenderer(externalProps) {
 
             solarSystemGroup.current.add(pivot)
 
-            let mesh;
+            let mesh
+            let axialGroup = null
+            let ringParent = null
 
             if (planet.name === "Earth") {
                 const earthSystem = createEarth({
@@ -1566,7 +1626,25 @@ export default function SolarSystemRenderer(externalProps) {
                     segments: 48,
                 })
                 mesh.castShadow = true
-                pivot.add(mesh)
+
+                if (planet.axisTiltX || planet.axisTiltZ) {
+                    axialGroup = new THREE.Group()
+                    axialGroup.name = `${planet.name}_Axis`
+                    axialGroup.position.copy(mesh.position)
+                    axialGroup.rotation.x = THREE.MathUtils.degToRad(
+                        planet.axisTiltX || 0
+                    )
+                    axialGroup.rotation.z = THREE.MathUtils.degToRad(
+                        planet.axisTiltZ || 0
+                    )
+                    mesh.position.set(0, 0, 0)
+                    axialGroup.add(mesh)
+                    pivot.add(axialGroup)
+                    ringParent = axialGroup
+                } else {
+                    pivot.add(mesh)
+                    ringParent = mesh
+                }
             }
 
             if (planet.name === "Earth") {
@@ -1651,6 +1729,10 @@ export default function SolarSystemRenderer(externalProps) {
                     scale: props.saturnRingScale ?? 1.5,
                     opacity: props.saturnRingOpacity ?? 0.55,
                     alphaTest: props.saturnRingAlphaTest ?? 0.05,
+                    occlusionRadius:
+                        props.saturnRingOcclusionRadius ?? 2 / 3.2,
+                    occlusionSoftness:
+                        props.saturnRingOcclusionSoftness ?? 0.035,
                 })
                 saturnRingDebrisRef.current = makeRingDebrisLayer({
                     name: "Saturn Ring Debris",
@@ -1681,9 +1763,9 @@ export default function SolarSystemRenderer(externalProps) {
                     softness: props.saturnRingPlanetShadowSoftness ?? 0.13,
                     color: props.saturnRingPlanetShadowColor ?? 0x080604,
                     segments: props.saturnSegments ?? 96,
+                    faceOnFade: props.saturnRingShadowFaceOnFade ?? 0.18,
                 })
-                mesh.add(ringShadowRefs.current.Saturn)
-                mesh.add(saturnRingsGroup.current)
+                ringParent.add(saturnRingsGroup.current)
             }
 
             if (planet.name === "Uranus") {
@@ -1698,6 +1780,10 @@ export default function SolarSystemRenderer(externalProps) {
                     scale: props.uranusRingScale ?? 1,
                     opacity: props.uranusRingOpacity ?? 0.35,
                     alphaTest: props.uranusRingAlphaTest ?? 0.05,
+                    occlusionRadius:
+                        props.uranusRingOcclusionRadius ?? 2 / 3.45,
+                    occlusionSoftness:
+                        props.uranusRingOcclusionSoftness ?? 0.045,
                 })
                 uranusRingDebrisRef.current = makeRingDebrisLayer({
                     name: "Uranus Ring Debris",
@@ -1728,9 +1814,9 @@ export default function SolarSystemRenderer(externalProps) {
                     softness: props.uranusRingPlanetShadowSoftness ?? 0.12,
                     color: props.uranusRingPlanetShadowColor ?? 0x031014,
                     segments: props.uranusSegments ?? 96,
+                    faceOnFade: props.uranusRingShadowFaceOnFade ?? 0.95,
                 })
-                mesh.add(ringShadowRefs.current.Uranus)
-                mesh.add(uranusRingsGroup.current)
+                ringParent.add(uranusRingsGroup.current)
             }
 
             if (planet.name === "Neptune") {
@@ -1745,6 +1831,10 @@ export default function SolarSystemRenderer(externalProps) {
                     scale: props.neptuneRingScale ?? 1,
                     opacity: props.neptuneRingOpacity ?? 0.3,
                     alphaTest: props.neptuneRingAlphaTest ?? 0.05,
+                    occlusionRadius:
+                        props.neptuneRingOcclusionRadius ?? 2 / 2.75,
+                    occlusionSoftness:
+                        props.neptuneRingOcclusionSoftness ?? 0.04,
                 })
                 neptuneRingDebrisRef.current = makeRingDebrisLayer({
                     name: "Neptune Ring Debris",
@@ -1775,16 +1865,18 @@ export default function SolarSystemRenderer(externalProps) {
                     softness: props.neptuneRingPlanetShadowSoftness ?? 0.13,
                     color: props.neptuneRingPlanetShadowColor ?? 0x020915,
                     segments: props.neptuneSegments ?? 96,
+                    faceOnFade: props.neptuneRingShadowFaceOnFade ?? 0.35,
                 })
-                mesh.add(ringShadowRefs.current.Neptune)
-                mesh.add(neptuneRingsGroup.current)
+                ringParent.add(neptuneRingsGroup.current)
             }
 
             moonsRef.current[planet.name] = mesh
             planetPivotsRef.current[planet.name] = {
                 pivot,
                 mesh,
+                axialGroup,
                 speed: planet.speed,
+                rotationDirection: planet.rotationDirection ?? 1,
                 type: "planet",
             }
             registerSceneUnit({
@@ -1910,6 +2002,8 @@ export default function SolarSystemRenderer(externalProps) {
             scale: props.ringsScale ?? 1,
             opacity: props.ringOpacity ?? 0.75,
             alphaTest: props.ringAlphaTest ?? 0.02,
+            occlusionRadius: props.ringOcclusionRadius ?? 2 / 4.5,
+            occlusionSoftness: props.ringOcclusionSoftness ?? 0.04,
         })
 
         jupiterRingDebrisRef.current = makeRingDebrisLayer({
@@ -1942,8 +2036,8 @@ export default function SolarSystemRenderer(externalProps) {
             softness: props.jupiterRingPlanetShadowSoftness ?? 0.12,
             color: props.jupiterRingPlanetShadowColor ?? 0x050403,
             segments: props.jupiterSegments ?? 96,
+            faceOnFade: props.jupiterRingShadowFaceOnFade ?? 0.25,
         })
-        jupiterGroup.current.add(ringShadowRefs.current.Jupiter)
 
         const moonsData = getJupiterMoonConfigs(props)
 
@@ -2039,7 +2133,7 @@ export default function SolarSystemRenderer(externalProps) {
             hideWithScene: true,
         })
 
-        const { composer, bloomPass, grainPass } = createPostProcessing({
+        const { composer, bloomPass, grainPass, focusRenderPass } = createPostProcessing({
             renderer,
             scene,
             camera,
@@ -2114,6 +2208,12 @@ export default function SolarSystemRenderer(externalProps) {
                 runtimeSceneConfigRef.current ||
                 (activeSceneName ? getSceneConfig(p, activeSceneName) : null)
             const isRealScaleScene = activeSceneName === "realScaleLine"
+            const previousFrameTime = perfFrameRef.current.lastFrameTime || time
+            const frameDelta = Math.max(0, time - previousFrameTime)
+            perfFrameRef.current.lastFrameTime = time
+            perfFrameRef.current.frames += 1
+            perfFrameRef.current.frameTotal += frameDelta
+
             if (sunMesh.material?.color) {
                 if (isRealScaleScene) {
                     sunMesh.material.color.set(p.realScaleSunTint ?? 0xff5a1f)
@@ -2281,6 +2381,7 @@ export default function SolarSystemRenderer(externalProps) {
             updateRingLight(neptuneRingsGroup.current)
             Object.values(ringShadowRefs.current).forEach((shadowShell) => {
                 if (!shadowShell?.material?.uniforms?.sunWorldPosition) return
+                shadowShell.visible = false
                 shadowShell.material.uniforms.sunWorldPosition.value.copy(
                     sunWorldPos
                 )
@@ -2327,10 +2428,42 @@ export default function SolarSystemRenderer(externalProps) {
                     (p.zoomSmoothness ?? 0.05)
 
                 const selectedName = selectedMoonRef.current
-                const isRingPlanetVisible = (name) =>
-                    !!activeSceneName ||
-                    selectedName === name ||
-                    focusedMoonRef.current === name
+                const getRingPlanetDetailVisible = (name) => {
+                    if (p.ringDetailMode === "always") return true
+                    if (p.ringDetailMode === "focusOnly") {
+                        return selectedName === name || focusedMoonRef.current === name
+                    }
+                    if (activeSceneName) return true
+
+                    const unit = getSceneUnit(name)
+                    const ringSystemFocused =
+                        unit?.children?.includes(selectedName) ||
+                        unit?.children?.includes(focusedMoonRef.current)
+
+                    if (
+                        selectedName === name ||
+                        focusedMoonRef.current === name ||
+                        ringSystemFocused
+                    ) {
+                        return true
+                    }
+
+                    const target = getSceneUnitTarget(name)
+                    const radius = getObjectWorldRadius(unit)
+                    if (!target || !radius) return false
+
+                    const worldPos = target.getWorldPosition(new THREE.Vector3())
+                    const viewportHeight = getProjectedViewportHeight({
+                        camera: cam,
+                        worldPos,
+                        radius,
+                    })
+
+                    return (
+                        viewportHeight >=
+                        (p.ringDetailMinViewportHeight ?? 0.18)
+                    )
+                }
                 const ringVisuals = [
                     ["Jupiter", jupiterRingDebrisRef.current],
                     ["Saturn", saturnRingDebrisRef.current],
@@ -2339,32 +2472,14 @@ export default function SolarSystemRenderer(externalProps) {
                 ]
 
                 ringVisuals.forEach(([name, debris]) => {
-                    const visible = isRingPlanetVisible(name)
+                    const visible = getRingPlanetDetailVisible(name)
                     if (debris) {
                         debris.visible = visible
                     }
                     if (ringShadowRefs.current[name]) {
-                        ringShadowRefs.current[name].visible = visible
+                        ringShadowRefs.current[name].visible = false
                     }
                 })
-
-                if (ringShadowRefs.current.Jupiter) {
-                    const jupiterSystemSelected = [
-                        "Jupiter",
-                        "Callisto",
-                        "Europa",
-                        "Ganymede",
-                        "IO",
-                    ].includes(selectedName)
-                    ringShadowRefs.current.Jupiter.visible =
-                        !!activeSceneName ||
-                        jupiterSystemSelected ||
-                        focusedMoonRef.current === "Jupiter"
-                    if (jupiterRingDebrisRef.current) {
-                        jupiterRingDebrisRef.current.visible =
-                            ringShadowRefs.current.Jupiter.visible
-                    }
-                }
                 const selectedUnit = selectedName
                     ? getSceneUnit(selectedName)
                     : null
@@ -2694,51 +2809,66 @@ export default function SolarSystemRenderer(externalProps) {
                     }
                 }
 
-                const allNav = Object.keys(sceneUnitsRef.current).filter(
-                    (name) => {
-                        const unit = sceneUnitsRef.current[name]
-                        if (!unit) return false
+                const labelUpdateInterval = p.labelUpdateIntervalMs ?? 33
+                if (
+                    time - labelsLastUpdateRef.current >=
+                    labelUpdateInterval
+                ) {
+                    labelsLastUpdateRef.current = time
 
-                        return ["star", "planet", "moon", "marker"].includes(
-                            unit.type
-                        )
-                    }
-                )
+                    const allNav = Object.keys(sceneUnitsRef.current).filter(
+                        (name) => {
+                            const unit = sceneUnitsRef.current[name]
+                            if (!unit) return false
 
-                const newLabels = []
-
-                allNav.forEach((name) => {
-                    const obj = getSceneUnitTarget(name)
-                    if (!obj) return
-
-                    const unit = getSceneUnit(name)
-                    if (
-                        activeSceneConfig?.objects?.length &&
-                        unit?.root?.visible === false
+                            return ["star", "planet", "moon", "marker"].includes(
+                                unit.type
+                            )
+                        }
                     )
-                        return
 
-                    const pos = new THREE.Vector3()
-                    obj.getWorldPosition(pos)
-                    pos.project(cam)
+                    const newLabels = []
+                    const labelPosition = new THREE.Vector3()
 
-                    const offX = p[`offX_${name}`] || 0
-                    const offY = p[`offY_${name}`] || 0
+                    allNav.forEach((name) => {
+                        const obj = getSceneUnitTarget(name)
+                        if (!obj) return
 
-                    newLabels.push({
-                        name,
-                        x: (pos.x * 0.5 + 0.5) * rect.width + offX,
-                        y: (-pos.y * 0.5 + 0.5) * rect.height + offY,
-                        visible:
-                            pos.z < 1 &&
-                            pos.x > -1.5 &&
-                            pos.x < 1.5 &&
-                            pos.y > -1.5 &&
-                            pos.y < 1.5,
+                        const unit = getSceneUnit(name)
+                        if (
+                            activeSceneConfig?.objects?.length &&
+                            unit?.root?.visible === false
+                        )
+                            return
+
+                        obj.getWorldPosition(labelPosition)
+                        labelPosition.project(cam)
+
+                        const offX = p[`offX_${name}`] || 0
+                        const offY = p[`offY_${name}`] || 0
+
+                        newLabels.push({
+                            name,
+                            x: (labelPosition.x * 0.5 + 0.5) * rect.width + offX,
+                            y:
+                                (-labelPosition.y * 0.5 + 0.5) *
+                                    rect.height +
+                                offY,
+                            visible:
+                                labelPosition.z < 1 &&
+                                labelPosition.x > -1.5 &&
+                                labelPosition.x < 1.5 &&
+                                labelPosition.y > -1.5 &&
+                                labelPosition.y < 1.5,
+                        })
                     })
-                })
 
-                setLabels(newLabels)
+                    const nextSignature = getLabelsSignature(newLabels)
+                    if (nextSignature !== labelsSignatureRef.current) {
+                        labelsSignatureRef.current = nextSignature
+                        setLabels(newLabels)
+                    }
+                }
             }
 
             if (c.autoRotate) {
@@ -2749,7 +2879,9 @@ export default function SolarSystemRenderer(externalProps) {
                         if (!item.mesh) return
 
                         item.mesh.rotation.y +=
-                            (c.rotateSpeed ?? 0.5) * 0.005
+                            (item.rotationDirection ?? 1) *
+                            (c.rotateSpeed ?? 0.5) *
+                            0.005
                     }
                 )
 
@@ -2850,29 +2982,45 @@ export default function SolarSystemRenderer(externalProps) {
                 }
             }
 
-            const {
-                overrides,
-                activeSceneUnits,
-                activeSceneChildParents,
-            } = buildSceneOverrides({
-                activeSceneConfig,
-                getSceneUnit,
-            })
-            sceneOverrideRef.current = overrides
-            const isCustomSceneActive = !!activeSceneConfig?.objects?.length
+            let sceneCache = sceneOverrideCacheRef.current
+            if (
+                sceneCache.activeSceneName !== activeSceneName ||
+                sceneCache.activeSceneConfig !== activeSceneConfig
+            ) {
+                const {
+                    overrides,
+                    activeSceneUnits,
+                    activeSceneChildParents,
+                } = buildSceneOverrides({
+                    activeSceneConfig,
+                    getSceneUnit,
+                })
+                const isCustomSceneActive = !!activeSceneConfig?.objects?.length
 
-            applySceneVisibility({
-                sceneUnits: sceneUnitsRef.current,
-                activeSceneUnits,
-                activeSceneChildParents,
-                isCustomSceneActive,
-            })
+                sceneCache = {
+                    activeSceneName,
+                    activeSceneConfig,
+                    overrides,
+                    activeSceneUnits,
+                    activeSceneChildParents,
+                    isCustomSceneActive,
+                }
+                sceneOverrideCacheRef.current = sceneCache
+                sceneOverrideRef.current = overrides
+
+                applySceneVisibility({
+                    sceneUnits: sceneUnitsRef.current,
+                    activeSceneUnits,
+                    activeSceneChildParents,
+                    isCustomSceneActive,
+                })
+            }
 
             applySceneOverrides({
                 sceneUnits: sceneUnitsRef.current,
                 sceneUnitSavedState: sceneUnitSavedStateRef.current,
                 originalScales: originalScalesRef.current,
-                overrides,
+                overrides: sceneCache.overrides,
             })
 
             Object.values(sceneUnitsRef.current).forEach((unit) => {
@@ -2922,6 +3070,11 @@ export default function SolarSystemRenderer(externalProps) {
             const currentTargetName = focusedMoonRef.current || selectedMoonRef.current
             const focusUnit = (focusLightBlendRef.current > 0.001 && currentTargetName) ? getSceneUnit(currentTargetName) : null
             setFocusLayerObject(focusUnit)
+            if (focusRenderPass) {
+                focusRenderPass.enabled =
+                    focusLightBlend >
+                    (p.focusRenderPassEnabledThreshold ?? 0.001)
+            }
 
             sunFlareLight.visible = !isRealScaleScene && sceneSunMultiplier > 0.02
             sunFlareLight.intensity = 0
@@ -2983,6 +3136,39 @@ export default function SolarSystemRenderer(externalProps) {
             focusCamera.updateMatrixWorld(true)
 
             composer.render()
+
+            if (
+                showPerformanceMonitor &&
+                time - perfFrameRef.current.lastUpdate >= 500
+            ) {
+                const sample = perfFrameRef.current
+                const averageFrame =
+                    sample.frames > 0 ? sample.frameTotal / sample.frames : 0
+
+                sample.fps = averageFrame > 0 ? 1000 / averageFrame : 0
+                sample.frameMs = averageFrame
+                sample.frames = 0
+                sample.frameTotal = 0
+                sample.lastUpdate = time
+
+                setPerfStats({
+                    fps: sample.fps,
+                    frameMs: sample.frameMs,
+                    drawCalls: renderer.info.render.calls,
+                    triangles: renderer.info.render.triangles,
+                    geometries: renderer.info.memory.geometries,
+                    textures: renderer.info.memory.textures,
+                    dpr: renderer.getPixelRatio(),
+                    ringDetails: [
+                        jupiterRingDebrisRef.current,
+                        saturnRingDebrisRef.current,
+                        uranusRingDebrisRef.current,
+                        neptuneRingDebrisRef.current,
+                    ].filter((item) => item?.visible).length,
+                    focusPass: !!focusRenderPass?.enabled,
+                })
+            }
+
             requestID = requestAnimationFrame(animate)
         }
 
@@ -3145,6 +3331,21 @@ export default function SolarSystemRenderer(externalProps) {
 
             {isLoadingAssets && <LoadingOverlay progress={loadingProgress} />}
 
+            {showPerformanceMonitor && perfStats && (
+                <aside style={perfPanelStyle} aria-label="Performance">
+                    <strong style={perfTitleStyle}>PERF</strong>
+                    <span>FPS {formatPerfNumber(perfStats.fps, 1)}</span>
+                    <span>Frame {formatPerfNumber(perfStats.frameMs, 1)}ms</span>
+                    <span>Draw {perfStats.drawCalls}</span>
+                    <span>Tri {formatPerfNumber(perfStats.triangles)}</span>
+                    <span>Geo {perfStats.geometries}</span>
+                    <span>Tex {perfStats.textures}</span>
+                    <span>DPR {formatPerfNumber(perfStats.dpr, 2)}</span>
+                    <span>Rings {perfStats.ringDetails}/4</span>
+                    <span>Focus pass {perfStats.focusPass ? "on" : "off"}</span>
+                </aside>
+            )}
+
             {!hideLabels && (
                 <LabelsLayer
                     labels={labels}
@@ -3300,4 +3501,28 @@ const containerMainStyle = {
     alignItems: "center",
     width: "100%",
     height: "100%",
+}
+
+const perfPanelStyle = {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    zIndex: 9000,
+    display: "grid",
+    gap: 4,
+    minWidth: 132,
+    padding: "10px 12px",
+    background: "rgba(0,0,0,0.68)",
+    border: "1px solid rgba(255,255,255,0.18)",
+    color: "#fff",
+    fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
+    fontSize: 11,
+    lineHeight: 1.25,
+    pointerEvents: "none",
+}
+
+const perfTitleStyle = {
+    color: "rgba(255,255,255,0.72)",
+    fontSize: 10,
+    letterSpacing: "0.12em",
 }

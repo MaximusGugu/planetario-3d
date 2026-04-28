@@ -26,8 +26,10 @@ export const createPostProcessing = ({
     bloomPass.renderToScreen = false
     composer.addPass(bloomPass)
 
+    let focusRenderPass = null
+
     if (focusCamera) {
-        const focusRenderPass = new RenderPass(scene, focusCamera)
+        focusRenderPass = new RenderPass(scene, focusCamera)
         focusRenderPass.clear = false
         focusRenderPass.clearDepth = true
         composer.addPass(focusRenderPass)
@@ -37,5 +39,5 @@ export const createPostProcessing = ({
     composer.addPass(grainPass)
     composer.addPass(new OutputPass())
 
-    return { composer, bloomPass, grainPass }
+    return { composer, bloomPass, grainPass, focusRenderPass }
 }
