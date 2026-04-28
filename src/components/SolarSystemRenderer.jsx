@@ -166,6 +166,7 @@ export default function SolarSystemRenderer(externalProps) {
     const focusedMoonRef = useRef(null)
     const [hudFeatureFocus, setHudFeatureFocus] = useState(null)
     const hudFeatureFocusRef = useRef(null)
+    const [activeFeatureHud, setActiveFeatureHud] = useState(null)
     const [hudAccordionResetKey, setHudAccordionResetKey] = useState(0)
     const [isInsideJupiter, setIsInsideJupiter] = useState(false)
     const [showSettings, setShowSettings] = useState(false)
@@ -356,6 +357,7 @@ export default function SolarSystemRenderer(externalProps) {
     }, [hudFeatureFocus])
 
     const getActiveOverlay = () => {
+        if (activeFeatureHud) return activeFeatureHud
         if (!focusedMoon) return null
 
         if (BASE_MOONS.includes(focusedMoon)) {
@@ -455,6 +457,7 @@ export default function SolarSystemRenderer(externalProps) {
             motion: motionSpec,
             viewportHeight:
                 cameraSpec.viewportHeight ?? featureSpec.viewportHeight,
+            hud: featureSpec.hud || null,
             viewportHeightKey:
                 cameraSpec.viewportHeightKey ?? featureSpec.viewportHeightKey,
             surfaceOffset:
@@ -715,6 +718,7 @@ export default function SolarSystemRenderer(externalProps) {
         setFocusedMoon(null)
         setHudFeatureFocus(null)
         hudFeatureFocusRef.current = null
+        setActiveFeatureHud(null)
         hudCameraLockRef.current = null
         setIsInsideJupiter(false)
         isInsideRef.current = false
@@ -742,6 +746,7 @@ export default function SolarSystemRenderer(externalProps) {
         setFocusedMoon(targetName)
         setHudFeatureFocus(null)
         hudFeatureFocusRef.current = null
+        setActiveFeatureHud(null)
         hudCameraLockRef.current = null
         if (resetAccordion) {
             resetHudAccordion()
@@ -775,6 +780,7 @@ export default function SolarSystemRenderer(externalProps) {
 
             setHudFeatureFocus(featureConfig)
             hudFeatureFocusRef.current = featureConfig
+            setActiveFeatureHud(featureConfig.hud || null)
 
             const bodyUnit = getSceneUnit(featureConfig.bodyName)
             const bodyRadius = getObjectWorldRadius(bodyUnit)
@@ -812,6 +818,7 @@ export default function SolarSystemRenderer(externalProps) {
 
         setHudFeatureFocus(featureConfig)
         hudFeatureFocusRef.current = featureConfig
+        setActiveFeatureHud(featureConfig.hud || null)
 
         if (selectedMoonRef.current) {
             targetDistance.current = getLandingDistance(selectedMoonRef.current)
@@ -1304,8 +1311,10 @@ export default function SolarSystemRenderer(externalProps) {
             config: props,
         })
         camera.layers.enable(ASTEROID_LAYER)
-        camera.layers.enable(3)
         cameraRef.current = camera
+
+        const focusCamera = camera.clone()
+        focusCamera.layers.set(FOCUSED_LAYER)
 
         const controls = createControls({
             camera,
@@ -2028,6 +2037,7 @@ export default function SolarSystemRenderer(externalProps) {
             renderer,
             scene,
             camera,
+            focusCamera,
             container,
             config: props,
             grainShader: GrainShader,
@@ -2871,7 +2881,7 @@ export default function SolarSystemRenderer(externalProps) {
                         : focusLightBlendRef.current
             focusLightBlendRef.current = focusLightBlend
 
-            const sunBlend = 1 - focusLightBlend
+            const sunBlend = 1
             const visualSunBlend = sunVisualBlend * sceneSunMultiplier
             const asteroidSunExposure =
                 ((landingExperienceActive
@@ -2928,23 +2938,25 @@ export default function SolarSystemRenderer(externalProps) {
             const baseBloomRadius = c.bloomRadius ?? p.bloomRadius ?? 0.65
             const baseBloomThreshold =
                 c.bloomThreshold ?? p.bloomThreshold ?? 0.04
-            bloomPass.strength =
-                baseBloomStrength *
-                (1 - focusLightBlend) +
-                (p.focusBloomStrength ?? 0) * focusLightBlend
-            bloomPass.radius =
-                baseBloomRadius *
-                (1 - focusLightBlend) +
-                (p.focusBloomRadius ?? 0.02) * focusLightBlend
-            bloomPass.threshold =
-                baseBloomThreshold *
-                (1 - focusLightBlend) +
-                (p.focusBloomThreshold ?? 1) * focusLightBlend
+            bloomPass.strength = baseBloomStrength
+            bloomPass.radius = baseBloomRadius
+            bloomPass.threshold = baseBloomThreshold
 
             grainPass.uniforms["amount"].value = p.grainAmount ?? 0.012
             grainPass.uniforms["brightnessProtect"].value =
                 p.grainBrightnessProtect ?? 0.65
             grainPass.uniforms["time"].value = time * 0.001
+
+            focusCamera.position.copy(cam.position)
+            focusCamera.quaternion.copy(cam.quaternion)
+            focusCamera.scale.copy(cam.scale)
+            focusCamera.near = cam.near
+            focusCamera.far = cam.far
+            focusCamera.fov = cam.fov
+            focusCamera.aspect = cam.aspect
+            focusCamera.projectionMatrix.copy(cam.projectionMatrix)
+            focusCamera.projectionMatrixInverse.copy(cam.projectionMatrixInverse)
+            focusCamera.updateMatrixWorld(true)
 
             composer.render()
             requestID = requestAnimationFrame(animate)

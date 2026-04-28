@@ -9,6 +9,7 @@ export const createPostProcessing = ({
     renderer,
     scene,
     camera,
+    focusCamera,
     container,
     config,
     grainShader,
@@ -24,6 +25,13 @@ export const createPostProcessing = ({
     )
     bloomPass.renderToScreen = false
     composer.addPass(bloomPass)
+
+    if (focusCamera) {
+        const focusRenderPass = new RenderPass(scene, focusCamera)
+        focusRenderPass.clear = false
+        focusRenderPass.clearDepth = true
+        composer.addPass(focusRenderPass)
+    }
 
     const grainPass = new ShaderPass(grainShader)
     composer.addPass(grainPass)
