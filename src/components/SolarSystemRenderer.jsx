@@ -191,7 +191,6 @@ export default function SolarSystemRenderer(externalProps) {
     const focusLightBlendRef = useRef(0)
     const focusLayerObjectRef = useRef(null)
     const hudCameraLockRef = useRef(null)
-    const sunFlareSpriteRef = useRef(null)
     const jupiterInteriorRadiusRef = useRef(
         props.jupiterRadius ?? DEFAULT_SYSTEM.Jupiter.radius
     )
@@ -210,6 +209,7 @@ export default function SolarSystemRenderer(externalProps) {
 
     const [cleanNavigationMode, setCleanNavigationMode] = useState(false)
     const [freeFlightMode, setFreeFlightMode] = useState(false)
+    const [showFreeFlightHint, setShowFreeFlightHint] = useState(false)
     const [menuHoverZone, setMenuHoverZone] = useState(false)
     const ignoreMenuHoverRef = useRef(false)
     const hideMenuUntilMouseLeavesRef = useRef(false)
@@ -247,6 +247,14 @@ export default function SolarSystemRenderer(externalProps) {
     const [selectedName, setSelectedName] = useState(null)
     const isInsideRef = useRef(false)
     const freeNavigationRef = useRef(false)
+    const freeFlightKeysRef = useRef({
+        KeyW: false,
+        KeyA: false,
+        KeyS: false,
+        KeyD: false,
+        ShiftLeft: false,
+        ShiftRight: false,
+    })
     const hasUserInteractedRef = useRef(false)
     const savedFocusRef = useRef(null)
     const savedDistanceRef = useRef(null)
@@ -990,6 +998,18 @@ export default function SolarSystemRenderer(externalProps) {
         : null
 
     const toggleHideUI = () => {
+        if (freeNavigationRef.current || freeFlightMode) {
+            setCfg((prev) => {
+                const next = !prev.hideUI
+                setAutoHideUI(next)
+                setMenuForceHidden(false)
+                setMenuHoverZone(false)
+                setShowSettings(false)
+                return { ...prev, hideUI: next }
+            })
+            return
+        }
+
         const next = !cleanNavigationMode
 
         setCleanNavigationMode(next)
@@ -1163,6 +1183,10 @@ export default function SolarSystemRenderer(externalProps) {
         setShowSettings(false)
 
         setCfg((prev) => ({ ...prev, hideUI: true }))
+        setShowFreeFlightHint(true)
+        window.setTimeout(() => {
+            setShowFreeFlightHint(false)
+        }, propsRef.current.freeFlightHintDurationMs ?? 3000)
     }
 
     const restoreView = (view) => {
@@ -1514,8 +1538,7 @@ export default function SolarSystemRenderer(externalProps) {
             children: [],
         })
 
-        const makeGlowTexture = () => {
-            const size = 512
+        const makeRadialGlowTexture = ({ stops, size = 512 }) => {
             const canvas = document.createElement("canvas")
             canvas.width = size
             canvas.height = size
@@ -1530,11 +1553,9 @@ export default function SolarSystemRenderer(externalProps) {
                 size / 2
             )
 
-            gradient.addColorStop(0.0, "rgba(255,255,255,1)")
-            gradient.addColorStop(0.15, "rgba(255,230,120,0.9)")
-            gradient.addColorStop(0.35, "rgba(255,150,40,0.45)")
-            gradient.addColorStop(0.7, "rgba(255,100,20,0.12)")
-            gradient.addColorStop(1.0, "rgba(255,100,20,0)")
+            stops.forEach(([offset, color]) => {
+                gradient.addColorStop(offset, color)
+            })
 
             ctx.clearRect(0, 0, size, size)
             ctx.fillStyle = gradient
@@ -1546,26 +1567,64 @@ export default function SolarSystemRenderer(externalProps) {
             return texture
         }
 
-        const sunGlow = new THREE.Sprite(
-            new THREE.SpriteMaterial({
-                map: props.sunGlowTexture
-                    ? loadTexture(props.sunGlowTexture)
-                    : makeGlowTexture(),
-                color: 0xffffff,
-                transparent: true,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false,
-                depthTest: true,
-                opacity: props.sunGlowOpacity ?? 0.18,
-            })
-        )
+        const createSunGlowSprite = ({
+            name,
+            texture,
+            opacity,
+            scale,
+            depthTest = true,
+        }) => {
+            const sprite = new THREE.Sprite(
+                new THREE.SpriteMaterial({
+                    map: texture,
+                    color: 0xffffff,
+                    transparent: true,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                    depthTest,
+                    opacity,
+                })
+            )
+            sprite.material.toneMapped = false
+            sprite.name = name
+            sprite.scale.setScalar((props.sunSize || 3) * scale)
+            sunMesh.add(sprite)
+            return sprite
+        }
 
-        sunGlow.material.toneMapped = false
-        sunGlow.name = "Sun Glow"
-        sunGlow.scale.setScalar(
-            (props.sunSize || 3) * (props.sunGlowScale ?? 5)
-        )
-        sunMesh.add(sunGlow)
+        const outerGlow = createSunGlowSprite({
+            name: "Sun Outer Glow",
+            texture: makeRadialGlowTexture({
+                stops: [
+                    [0.0, "rgba(255,255,255,0.85)"],
+                    [0.18, "rgba(255,224,92,0.52)"],
+                    [0.42, "rgba(255,92,18,0.26)"],
+                    [0.68, "rgba(198,30,7,0.12)"],
+                    [1.0, "rgba(115,8,4,0)"],
+                ],
+            }),
+            opacity: props.sunOuterGlowOpacity ?? 0.16,
+            scale: props.sunOuterGlowScale ?? 5,
+        })
+
+        const fireAura = createSunGlowSprite({
+            name: "Sun Fire Aura",
+            texture: makeRadialGlowTexture({
+                stops: [
+                    [0.0, "rgba(255,255,255,1)"],
+                    [0.22, "rgba(255,224,96,0.9)"],
+                    [0.42, "rgba(255,96,14,0.78)"],
+                    [0.58, "rgba(255,54,6,0.48)"],
+                    [0.76, "rgba(255,34,4,0.16)"],
+                    [1.0, "rgba(255,28,4,0)"],
+                ],
+            }),
+            opacity: props.sunFireAuraOpacity ?? 0.38,
+            scale: props.sunFireAuraScale ?? 2.15,
+        })
+
+        const fireAuraBaseScale =
+            (props.sunSize || 3) * (props.sunFireAuraScale ?? 2.15)
 
         const {
             sunLight,
@@ -1576,16 +1635,14 @@ export default function SolarSystemRenderer(externalProps) {
             asteroidSunLight,
             ambient,
             sunFlareLight,
-            sunFlareSprite,
+            sunEclipseFlareLight,
         } = createSunLighting({
             scene,
             solarSystemGroup: solarSystemGroup.current,
             sunMesh,
-            loadTexture,
             config: props,
         })
 
-        sunFlareSpriteRef.current = sunFlareSprite
         sunPosLerp.current.set(props.sunX ?? -10, 0, props.sunZ ?? 5)
 
         const planets = getPlanetConfigs(props)
@@ -2163,17 +2220,19 @@ export default function SolarSystemRenderer(externalProps) {
             // 👇 NOVO: reset de inatividade
             isUserActiveRef.current = true
 
-            setAutoHideUI(false)
+            if (!(freeNavigationRef.current && cfgRef.current.hideUI)) {
+                setAutoHideUI(false)
 
-            if (inactivityTimerRef.current) {
-                clearTimeout(inactivityTimerRef.current)
+                if (inactivityTimerRef.current) {
+                    clearTimeout(inactivityTimerRef.current)
+                }
+
+                inactivityTimerRef.current = setTimeout(() => {
+                    isUserActiveRef.current = false
+
+                    setAutoHideUI(true)
+                }, 3000) // 3s
             }
-
-            inactivityTimerRef.current = setTimeout(() => {
-                isUserActiveRef.current = false
-
-                setAutoHideUI(true)
-            }, 3000) // 3s
         }
 
         window.addEventListener("mousemove", handleMouseMove)
@@ -2196,6 +2255,22 @@ export default function SolarSystemRenderer(externalProps) {
             passive: true,
         })
 
+        const handleKey = (event, pressed) => {
+            if (!(event.code in freeFlightKeysRef.current)) return
+
+            if (freeNavigationRef.current) {
+                event.preventDefault()
+            }
+
+            freeFlightKeysRef.current[event.code] = pressed
+        }
+
+        const handleKeyDown = (event) => handleKey(event, true)
+        const handleKeyUp = (event) => handleKey(event, false)
+
+        window.addEventListener("keydown", handleKeyDown)
+        window.addEventListener("keyup", handleKeyUp)
+
         let requestID = 0
 
         const animate = (time) => {
@@ -2213,6 +2288,42 @@ export default function SolarSystemRenderer(externalProps) {
             perfFrameRef.current.lastFrameTime = time
             perfFrameRef.current.frames += 1
             perfFrameRef.current.frameTotal += frameDelta
+
+            if (freeNavigationRef.current && cam && ctrl) {
+                const keys = freeFlightKeysRef.current
+                const forwardInput = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0)
+                const strafeInput = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0)
+
+                if (forwardInput || strafeInput) {
+                    const forward = new THREE.Vector3()
+                    cam.getWorldDirection(forward)
+                    forward.y = 0
+
+                    if (forward.lengthSq() < 0.000001) {
+                        forward.set(0, 0, -1)
+                    } else {
+                        forward.normalize()
+                    }
+
+                    const right = new THREE.Vector3()
+                        .crossVectors(forward, new THREE.Vector3(0, 1, 0))
+                        .normalize()
+                    const speed =
+                        (p.freeFlightKeyboardSpeed ?? 0.08) *
+                        ((keys.ShiftLeft || keys.ShiftRight)
+                            ? (p.freeFlightKeyboardBoost ?? 2)
+                            : 1) *
+                        THREE.MathUtils.clamp(frameDelta / 16.67, 0.25, 3)
+                    const movement = forward
+                        .multiplyScalar(forwardInput * speed)
+                        .add(right.multiplyScalar(strafeInput * speed))
+
+                    cam.position.add(movement)
+                    ctrl.target.add(movement)
+                    cameraTarget.current.add(movement)
+                    hasUserInteractedRef.current = true
+                }
+            }
 
             if (sunMesh.material?.color) {
                 if (isRealScaleScene) {
@@ -2260,12 +2371,13 @@ export default function SolarSystemRenderer(externalProps) {
                 cam.position
             )
             const sunDistance = sunDirection.length()
-            let sunOccluded = false
-            let sunVisualBlend = 1
+            let sunGlowBlend = 1
+            let sunNormalFlareBlend = 1
+            let sunEclipseFlareBlend = 0
+            const sunEclipseFlarePosition = sunWorldPos.clone()
 
             if (sunDistance > 0.001) {
                 sunDirection.normalize()
-                raycasterRef.current.set(cam.position, sunDirection)
                 const sunAngularRadius = getAngularRadius({
                     radius: props.sunSize || 3,
                     distance: sunDistance,
@@ -2278,11 +2390,12 @@ export default function SolarSystemRenderer(externalProps) {
                     (unit) => unit.body || unit.root
                 )
 
+                raycasterRef.current.set(cam.position, sunDirection)
                 const intersections = raycasterRef.current.intersectObjects(
                     occluderObjects,
                     true
                 )
-                sunOccluded = intersections.some(
+                const sunCenterBlocked = intersections.some(
                     (hit) => hit.distance < sunDistance - 0.001
                 )
 
@@ -2305,38 +2418,63 @@ export default function SolarSystemRenderer(externalProps) {
                         radius,
                         distance: objDistance,
                     })
-                    const hideAt =
-                        objAngularRadius +
-                        sunAngularRadius *
-                        (p.sunOcclusionHideRatio ?? 0)
-                    const fadeWidth =
-                        sunAngularRadius *
-                        (p.sunOcclusionFadeWidth ?? 0.8)
 
-                    if (separation <= hideAt) {
-                        sunVisualBlend = 0
-                    } else if (fadeWidth > 0 && separation < hideAt + fadeWidth) {
-                        sunVisualBlend = Math.min(
-                            sunVisualBlend,
-                            (separation - hideAt) / fadeWidth
+                    const overlapStart = sunAngularRadius + objAngularRadius
+                    if (separation >= overlapStart) return
+
+                    const totalCover =
+                        objAngularRadius >= sunAngularRadius &&
+                        separation <= objAngularRadius - sunAngularRadius
+
+                    if (totalCover) {
+                        sunGlowBlend = 0
+                        sunNormalFlareBlend = 0
+                        return
+                    }
+
+                    const overlapDepth = Math.max(0, overlapStart - separation)
+                    const partialCover = THREE.MathUtils.clamp(
+                        overlapDepth / Math.max(sunAngularRadius * 2, 0.0001),
+                        0,
+                        1
+                    )
+                    const edgeBlend = Math.sin(partialCover * Math.PI)
+
+                    sunGlowBlend = Math.min(sunGlowBlend, 1 - partialCover * 0.9)
+                    sunNormalFlareBlend = Math.min(
+                        sunNormalFlareBlend,
+                        Math.max(0, 1 - partialCover * 1.8)
+                    )
+
+                    if (edgeBlend > sunEclipseFlareBlend) {
+                        sunEclipseFlareBlend = edgeBlend
+                        const limbDirection = sunDirection
+                            .clone()
+                            .sub(objDirection)
+                            .projectOnPlane(sunDirection)
+
+                        if (limbDirection.lengthSq() < 0.000001) {
+                            limbDirection.setFromMatrixColumn(cam.matrixWorld, 0)
+                        }
+
+                        limbDirection.normalize()
+                        sunEclipseFlarePosition.copy(
+                            sunWorldPos.clone().add(
+                                limbDirection.multiplyScalar(
+                                    (props.sunSize || 3) * 0.82
+                                )
+                            )
                         )
                     }
                 })
+
+                if (sunCenterBlocked && sunEclipseFlareBlend <= 0.001) {
+                    sunGlowBlend = 0
+                    sunNormalFlareBlend = 0
+                }
             }
 
-            if (sunOccluded) {
-                sunVisualBlend = 0
-            }
-
-            const flareVisible = !isRealScaleScene && sunVisualBlend > 0.02
-            sunFlareLight.visible = flareVisible
-            if (sunFlareSpriteRef.current) {
-                sunFlareSpriteRef.current.visible = flareVisible
-                sunFlareSpriteRef.current.material.opacity = sunVisualBlend
-            }
-            sunGlow.visible = flareVisible
-            sunGlow.material.opacity =
-                (p.sunGlowOpacity ?? 0.18) * sunVisualBlend
+            sunEclipseFlareLight.position.copy(sunEclipseFlarePosition)
             ringsGroup.current.rotation.x = THREE.MathUtils.degToRad(
                 p.ringsRotX || 0
             )
@@ -2404,12 +2542,27 @@ export default function SolarSystemRenderer(externalProps) {
             let landingExperienceActive = false
 
             if (ctrl && cam && container) {
+                const hoverSceneUnits =
+                    activeSceneConfig?.interactionMode === "galilean"
+                        ? Object.fromEntries(
+                            Object.entries(sceneUnitsRef.current).filter(
+                                ([name]) =>
+                                    [
+                                        "Jupiter",
+                                        "Callisto",
+                                        "Europa",
+                                        "Ganymede",
+                                        "IO",
+                                    ].includes(name)
+                            )
+                        )
+                        : sceneUnitsRef.current
                 setHoveredObjectName(
                     resolveHoveredSceneUnit({
                         raycaster: raycasterRef.current,
                         mouseNdc: mouseNdcRef.current,
                         camera: cam,
-                        sceneUnits: sceneUnitsRef.current,
+                        sceneUnits: hoverSceneUnits,
                     })
                 )
 
@@ -2541,6 +2694,20 @@ export default function SolarSystemRenderer(externalProps) {
                         setFocusedMoon(null)
                         focusedMoonRef.current = null
                     }
+                }
+
+                if (
+                    activeSceneConfig?.interactionMode === "galilean" &&
+                    focusedMoonRef.current &&
+                    selectedName &&
+                    isCameraSettledOnFocus &&
+                    selectedViewportHeight > 0 &&
+                    selectedViewportHeight <
+                    (activeSceneConfig.returnViewportHeight ??
+                        p.galileanReturnViewportHeight ??
+                        0.6)
+                ) {
+                    returnToActiveSceneOverview()
                 }
 
                 if (
@@ -2964,6 +3131,10 @@ export default function SolarSystemRenderer(externalProps) {
                         selectedName: selectedMoonRef.current,
                         orbitSpeed: c.orbitSpeed,
                         rotateSpeed: c.rotateSpeed,
+                        jupiterMoonOrbitSpeedMultiplier:
+                            p.jupiterMoonOrbitSpeedMultiplier ?? 0.22,
+                        jupiterMoonRotateSpeedMultiplier:
+                            p.jupiterMoonRotateSpeedMultiplier ?? 0.28,
                     })
 
                     const asteroidBelt = getSceneUnit("AsteroidBelt")?.root
@@ -3054,7 +3225,16 @@ export default function SolarSystemRenderer(externalProps) {
             focusLightBlendRef.current = focusLightBlend
 
             const sunBlend = 1
-            const visualSunBlend = sunVisualBlend * sceneSunMultiplier
+            const sunEffectsAllowed = !isRealScaleScene && sunMesh.visible !== false
+            const visualGlowBlend = sunEffectsAllowed
+                ? sunGlowBlend * sceneSunMultiplier
+                : 0
+            const visualNormalFlareBlend = sunEffectsAllowed
+                ? sunNormalFlareBlend * sceneSunMultiplier
+                : 0
+            const visualEclipseFlareBlend = sunEffectsAllowed
+                ? sunEclipseFlareBlend * sceneSunMultiplier
+                : 0
             const asteroidSunExposure =
                 ((landingExperienceActive
                     ? (p.asteroidFocusSunExposure ?? 0.16)
@@ -3076,16 +3256,35 @@ export default function SolarSystemRenderer(externalProps) {
                     (p.focusRenderPassEnabledThreshold ?? 0.001)
             }
 
-            sunFlareLight.visible = !isRealScaleScene && sceneSunMultiplier > 0.02
-            sunFlareLight.intensity = 0
-            if (sunFlareSpriteRef.current) {
-                sunFlareSpriteRef.current.visible =
-                    !isRealScaleScene && sceneSunMultiplier > 0.02
-                sunFlareSpriteRef.current.material.opacity = sceneSunMultiplier
-            }
-            sunGlow.visible = !isRealScaleScene && sceneSunMultiplier > 0.02
-            sunGlow.material.opacity =
-                (p.sunGlowOpacity ?? 0.18) * sceneSunMultiplier
+            sunFlareLight.visible = visualNormalFlareBlend > 0.02
+            sunFlareLight.intensity =
+                (p.sunNormalFlareIntensity ?? 0.35) * visualNormalFlareBlend
+            sunFlareLight.userData.lensflare?.userData.setBlend?.(
+                visualNormalFlareBlend
+            )
+            sunEclipseFlareLight.visible = visualEclipseFlareBlend > 0.02
+            sunEclipseFlareLight.intensity =
+                (p.sunEclipseFlareIntensity ?? 1.8) * visualEclipseFlareBlend
+            sunEclipseFlareLight.userData.lensflare?.userData.setBlend?.(
+                visualEclipseFlareBlend
+            )
+
+            outerGlow.visible = visualGlowBlend > 0.02
+            outerGlow.material.opacity =
+                (p.sunOuterGlowOpacity ?? 0.16) * visualGlowBlend
+
+            const auraPulse =
+                1 +
+                Math.sin(time * (p.sunFireAuraPulseSpeed ?? 0.0018)) *
+                (p.sunFireAuraPulseAmount ?? 0.08)
+            fireAura.visible = visualGlowBlend > 0.02
+            fireAura.material.opacity =
+                (p.sunFireAuraOpacity ?? 0.38) *
+                visualGlowBlend *
+                (0.86 + (auraPulse - 1) * 0.8)
+            fireAura.material.rotation =
+                time * (p.sunFireAuraRotationSpeed ?? 0.00012)
+            fireAura.scale.setScalar(fireAuraBaseScale * auraPulse)
 
             const baseSunIntensity =
                 (isRealScaleScene
@@ -3179,6 +3378,8 @@ export default function SolarSystemRenderer(externalProps) {
             cancelAnimationFrame(requestID)
 
             window.removeEventListener("mousemove", handleMouseMove)
+            window.removeEventListener("keydown", handleKeyDown)
+            window.removeEventListener("keyup", handleKeyUp)
 
             container.removeEventListener("wheel", handleWheel)
 
@@ -3293,11 +3494,15 @@ export default function SolarSystemRenderer(externalProps) {
 
     const activeRuntimeSceneSettings = runtimeSceneSettings || {}
     const runtimeBackground = activeRuntimeSceneSettings.background || {}
+    const isGalileanScene =
+        activeRuntimeSceneSettings.interactionMode === "galilean"
     const hideStarTravel =
         !!activeRuntimeSceneSettings.hideStarTravel ||
         runtimeBackground.starTravel === false
     const hideNavigation = !!activeRuntimeSceneSettings.hideNavigation
-    const hideLabels = !!activeRuntimeSceneSettings.hideLabels
+    const hideLabels =
+        !!activeRuntimeSceneSettings.hideLabels &&
+        !activeRuntimeSceneSettings.showLabelsOnHover
 
     const activeButtonStyle = {
         opacity: 1,
@@ -3346,6 +3551,20 @@ export default function SolarSystemRenderer(externalProps) {
                 </aside>
             )}
 
+            {showFreeFlightHint && (
+                <aside style={freeFlightHintStyle} aria-label="Dica de navegacao">
+                    <span style={freeFlightHintTextStyle}>
+                        Navegue usando as teclas:
+                    </span>
+                    <div style={wasdGridStyle} aria-hidden="true">
+                        <span style={{ ...wasdKeyStyle, gridColumn: 2 }}>W</span>
+                        <span style={{ ...wasdKeyStyle, gridColumn: 1 }}>A</span>
+                        <span style={{ ...wasdKeyStyle, gridColumn: 2 }}>S</span>
+                        <span style={{ ...wasdKeyStyle, gridColumn: 3 }}>D</span>
+                    </div>
+                </aside>
+            )}
+
             {!hideLabels && (
                 <LabelsLayer
                     labels={labels}
@@ -3363,10 +3582,14 @@ export default function SolarSystemRenderer(externalProps) {
                     onFocus={focusOn}
                     hudOpen={!!ActiveOverlay || !!InteriorOverlay}
                     hoveredObjectName={hoveredObjectName}
-                    labelsOnlyOnHover={activeScene === "realScaleLine"}
+                    labelsOnlyOnHover={
+                        activeScene === "realScaleLine" ||
+                        !!activeRuntimeSceneSettings.showLabelsOnHover
+                    }
+                    sceneLabelsOnHover={isGalileanScene}
                 />
             )}
-            {cleanNavigationMode && (
+            {(cleanNavigationMode || (freeFlightMode && cfg.hideUI)) && (
                 <div
                     style={{
                         position: "absolute",
@@ -3525,4 +3748,51 @@ const perfTitleStyle = {
     color: "rgba(255,255,255,0.72)",
     fontSize: 10,
     letterSpacing: "0.12em",
+}
+
+const freeFlightHintStyle = {
+    position: "absolute",
+    left: "50%",
+    top: "14vh",
+    transform: "translateX(-50%)",
+    zIndex: 9200,
+    display: "grid",
+    justifyItems: "center",
+    gap: 14,
+    padding: "18px 22px",
+    borderRadius: 18,
+    border: "1px solid rgba(255,255,255,0.16)",
+    background: "rgba(0,0,0,0.42)",
+    backdropFilter: "blur(18px)",
+    boxShadow: "0 18px 48px rgba(0,0,0,0.32)",
+    color: "white",
+    pointerEvents: "none",
+}
+
+const freeFlightHintTextStyle = {
+    fontFamily: "'General Sans', Inter, system-ui, sans-serif",
+    fontSize: 12,
+    fontWeight: 800,
+    letterSpacing: "0.12em",
+    textTransform: "uppercase",
+    color: "rgba(255,255,255,0.82)",
+}
+
+const wasdGridStyle = {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 42px)",
+    gridAutoRows: "42px",
+    gap: 8,
+}
+
+const wasdKeyStyle = {
+    display: "grid",
+    placeItems: "center",
+    borderRadius: 10,
+    border: "2px solid rgba(255,255,255,0.82)",
+    background: "rgba(255,255,255,0.08)",
+    color: "rgba(255,255,255,0.94)",
+    fontFamily: "'General Sans', Inter, system-ui, sans-serif",
+    fontSize: 20,
+    fontWeight: 800,
 }

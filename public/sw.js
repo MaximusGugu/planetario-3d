@@ -1,4 +1,4 @@
-const VERSION = "planetario-3d-v1"
+const VERSION = "planetario-3d-v2"
 const CACHE_PREFIX = "planetario-3d"
 const ASSET_CACHE = `${VERSION}-assets`
 const BUILD_CACHE = `${VERSION}-build`

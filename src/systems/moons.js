@@ -6,9 +6,14 @@ export const updateMoonSystems = ({
     selectedName,
     orbitSpeed,
     rotateSpeed,
+    jupiterMoonOrbitSpeedMultiplier = 1,
+    jupiterMoonRotateSpeedMultiplier = 1,
 }) => {
     Object.values(moons).forEach((moon) => {
         const isEarthMoon = moon.mesh.name === "Moon"
+        const isJupiterMoon = ["Callisto", "Europa", "Ganymede", "IO"].includes(
+            moon.mesh.name
+        )
 
         if (isEarthMoon) {
             if (selectedName !== "Moon") {
@@ -48,9 +53,16 @@ export const updateMoonSystems = ({
         }
 
         if (selectedName !== moon.mesh.name) {
-            moon.pivot.rotation.y += (orbitSpeed ?? 0.3) * 0.005 * (moon.speed ?? 1)
+            moon.pivot.rotation.y +=
+                (orbitSpeed ?? 0.3) *
+                0.005 *
+                (moon.speed ?? 1) *
+                (isJupiterMoon ? jupiterMoonOrbitSpeedMultiplier : 1)
         }
 
-        moon.mesh.rotation.y += (rotateSpeed ?? 0.5) * 0.01
+        moon.mesh.rotation.y +=
+            (rotateSpeed ?? 0.5) *
+            0.01 *
+            (isJupiterMoon ? jupiterMoonRotateSpeedMultiplier : 1)
     })
 }

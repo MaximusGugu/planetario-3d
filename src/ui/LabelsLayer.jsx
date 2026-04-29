@@ -35,6 +35,7 @@ export default function LabelsLayer({
     hudOpen,
     hoveredObjectName,
     labelsOnlyOnHover = false,
+    sceneLabelsOnHover = false,
 }) {
     return labels.map((label) => {
         const isFocusedTarget = focusedMoon && label.name === selectedName
@@ -44,12 +45,12 @@ export default function LabelsLayer({
         const shouldShowBase =
             label.visible &&
             !isInsideJupiter &&
-            !isFocusedTarget &&
-            (!isJupiterChild || isJupiterContext()) &&
+            (sceneLabelsOnHover || !isFocusedTarget) &&
+            (sceneLabelsOnHover || !isJupiterChild || isJupiterContext()) &&
             (!isEarthChild || selectedName === "Earth") &&
-            !cleanNavigationMode &&
-            (!cfg.hideUI || freeFlightMode) &&
-            (!autoHideUI || hudOpen)
+            (sceneLabelsOnHover || !cleanNavigationMode) &&
+            (sceneLabelsOnHover || !cfg.hideUI || freeFlightMode) &&
+            (sceneLabelsOnHover || !autoHideUI || hudOpen)
         const shouldShow =
             shouldShowBase &&
             (!labelsOnlyOnHover || hoveredObjectName === label.name) &&

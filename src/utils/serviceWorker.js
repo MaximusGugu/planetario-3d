@@ -1,6 +1,6 @@
 const CACHE_CONSENT_KEY = "assetCacheConsent"
 const CACHE_VERSION_KEY = "assetCacheVersion"
-const CACHE_VERSION = "planetario-3d-v1"
+const CACHE_VERSION = "planetario-3d-v2"
 
 const getBasePath = () => import.meta.env.BASE_URL || "/"
 
@@ -25,7 +25,6 @@ const CACHE_WARMUP_ASSETS = [
     "textures/08uranosRings.png",
     "textures/09neptune.jpg",
     "textures/09neptuneRings.png",
-    "textures/sunLeak.jpg",
     "textures/earth/earthDayTexture.jpg",
     "textures/earth/earthLightMap.png",
     "textures/earth/earthCloudMap.png",

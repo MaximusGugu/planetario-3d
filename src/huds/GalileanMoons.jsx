@@ -83,7 +83,10 @@ const buildGalileanScene = (observation, index, scene = {}) => ({
     },
     hideStarTravel: true,
     hideNavigation: true,
-    hideLabels: true,
+    interactionMode: "galilean",
+    showLabelsOnHover: true,
+    keepSunLight: true,
+    returnViewportHeight: scene.returnViewportHeight ?? 0.6,
     camera: scene.camera || {
         position: [0, 5, 36],
         target: [0, 0, 0],
@@ -102,6 +105,8 @@ const buildGalileanScene = (observation, index, scene = {}) => ({
             rotZ: 0,
             includeChildren: false,
             materialColor: 0xffffff,
+            emissive: 0xffffff,
+            emissiveIntensity: scene.planetEmissiveIntensity ?? 0.16,
         },
         ...observation.moons.map((moon) => ({
             objectName:
@@ -125,7 +130,7 @@ const shellStyle = {
     position: "absolute",
     inset: 0,
     zIndex: 9500,
-    pointerEvents: "auto",
+    pointerEvents: "none",
     color: "white",
     fontFamily: "'General Sans', Inter, system-ui, sans-serif",
     overflow: "hidden",
@@ -145,6 +150,7 @@ const infoStyle = {
     bottom: "12vh",
     width: "min(330px, 26vw)",
     textShadow: "0 2px 14px rgba(0,0,0,0.95)",
+    pointerEvents: "none",
 }
 
 const eyebrowStyle = {
@@ -200,6 +206,7 @@ const controlsStyle = {
     background: "rgba(0,0,0,0.3)",
     backdropFilter: "blur(20px)",
     boxShadow: "0 0 18px rgba(255,255,255,0.06)",
+    pointerEvents: "auto",
 }
 
 const roundButtonStyle = {
@@ -239,6 +246,7 @@ const closeButtonStyle = {
     backdropFilter: "blur(12px)",
     boxShadow: "0 0 18px rgba(255,255,255,0.07)",
     fontSize: 12,
+    pointerEvents: "auto",
 }
 
 const indexStyle = {
@@ -338,6 +346,7 @@ export default function GalileanMoons({
                 type="button"
                 style={closeButtonStyle}
                 aria-label="Voltar para o HUD de Jupiter"
+                onPointerDown={(event) => event.stopPropagation()}
                 onClick={close}
             >
                 x
@@ -356,7 +365,11 @@ export default function GalileanMoons({
                 </p>
             </div>
 
-            <div style={bottomHUDBarStyle} aria-label="Alternar observacoes">
+            <div
+                style={{ ...bottomHUDBarStyle, pointerEvents: "auto" }}
+                aria-label="Alternar observacoes"
+                onPointerDown={(event) => event.stopPropagation()}
+            >
                 <button
                     type="button"
                     style={roundButtonStyle}
