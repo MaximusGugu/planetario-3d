@@ -1,21 +1,52 @@
-export default function EntryConsent({ onAccept, onSkip }) {
+import { useEffect, useState } from "react"
+
+export default function EntryConsent({ onAccept, onSkip, onRequestFullscreen }) {
+    const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement))
+
+    useEffect(() => {
+        const updateFullscreen = () => {
+            setIsFullscreen(Boolean(document.fullscreenElement))
+        }
+
+        document.addEventListener("fullscreenchange", updateFullscreen)
+        return () => document.removeEventListener("fullscreenchange", updateFullscreen)
+    }, [])
+
     return (
         <main style={rootStyle}>
             <section style={panelStyle} aria-label="Entrada do planetario">
-                <p style={eyebrowStyle}>Planetario 3D</p>
-                <h1 style={titleStyle}>Preparar assets locais?</h1>
+                <h1 style={titleStyle}>
+                    <span style={brandStyle}>Planetário</span>
+                    <span style={dividerStyle}>/</span>
+                    <span style={sectionTitleStyle}>Configurações</span>
+                </h1>
                 <p style={bodyStyle}>
-                    Podemos guardar texturas e modelos no cache do navegador para
-                    acelerar as proximas visitas. Nao salvamos dados pessoais.
+                    Para melhorar sua experiência, podemos guardar texturas e
+                    modelos no cache do navegador para acelerar as próximas
+                    visitas. Não salvamos dados pessoais.
+                </p>
+                <p style={bodyStyle}>
+                    Também recomendamos que você explore o ambiente em tela
+                    cheia, para melhor aproveitar.
                 </p>
                 <div style={actionsStyle}>
-                    <button type="button" style={primaryButtonStyle} onClick={onAccept}>
-                        Aceitar e entrar
+                    <button
+                        type="button"
+                        style={{
+                            ...actionButtonStyle,
+                            opacity: isFullscreen ? 0.58 : 1,
+                        }}
+                        onClick={onRequestFullscreen}
+                    >
+                        {isFullscreen ? "Tela cheia ativa" : "Tela cheia"}
                     </button>
-                    <button type="button" style={secondaryButtonStyle} onClick={onSkip}>
-                        Entrar sem cache avancado
+                    <button type="button" style={actionButtonStyle} onClick={onAccept}>
+                        Aceitar dados
                     </button>
                 </div>
+                <button type="button" style={skipButtonStyle} onClick={onSkip}>
+                    Continuar sem baixar os dados
+                </button>
             </section>
         </main>
     )
@@ -29,70 +60,98 @@ const rootStyle = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    padding: "24px",
     overflow: "hidden",
-    background:
-        "radial-gradient(circle at 50% 42%, rgba(226, 133, 73, 0.2), transparent 28%), #020204",
+    background: "#000",
     color: "#fff",
-    fontFamily: "Inter, system-ui, sans-serif",
+    fontFamily: "'General Sans', Inter, system-ui, sans-serif",
 }
 
 const panelStyle = {
-    width: "min(520px, calc(100vw - 32px))",
-    padding: "32px",
-    border: "1px solid rgba(255,255,255,0.18)",
-    background: "rgba(4, 5, 9, 0.78)",
-    backdropFilter: "blur(14px)",
-    boxShadow: "0 24px 80px rgba(0,0,0,0.45)",
-}
-
-const eyebrowStyle = {
-    margin: "0 0 12px",
-    fontSize: 12,
-    letterSpacing: "0.18em",
-    textTransform: "uppercase",
-    color: "rgba(255,255,255,0.62)",
+    width: "min(760px, calc(100vw - 48px))",
+    minHeight: "min(548px, calc(100vh - 48px))",
+    padding: "clamp(34px, 8vw, 78px)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    justifyContent: "center",
+    border: "4px solid rgba(255,255,255,0.18)",
+    borderRadius: "clamp(36px, 7vw, 64px)",
+    background: "rgba(0,0,0,0.48)",
+    backdropFilter: "blur(20px)",
+    boxShadow: "0 24px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08)",
 }
 
 const titleStyle = {
-    margin: "0 0 14px",
+    margin: "0 0 34px",
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "baseline",
+    gap: "0.28em",
+    fontSize: "clamp(24px, 4.2vw, 30px)",
+    lineHeight: 1.05,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+}
+
+const brandStyle = {
     fontFamily: "'Denton Text', Georgia, serif",
-    fontSize: "clamp(32px, 6vw, 56px)",
+    fontStyle: "italic",
     fontWeight: 700,
-    lineHeight: 0.95,
+}
+
+const dividerStyle = {
+    fontFamily: "Georgia, serif",
+    fontWeight: 400,
+}
+
+const sectionTitleStyle = {
+    fontFamily: "Georgia, serif",
+    fontWeight: 500,
 }
 
 const bodyStyle = {
-    margin: "0 0 26px",
-    maxWidth: 450,
-    color: "rgba(255,255,255,0.78)",
-    fontSize: 15,
-    lineHeight: 1.55,
+    margin: "0 0 28px",
+    maxWidth: 560,
+    color: "rgba(255,255,255,0.86)",
+    fontSize: "clamp(18px, 2.5vw, 21px)",
+    lineHeight: 1.36,
 }
 
 const actionsStyle = {
     display: "flex",
     flexWrap: "wrap",
-    gap: 12,
+    alignSelf: "center",
+    justifyContent: "center",
+    gap: 16,
+    width: "100%",
+    marginTop: 4,
 }
 
-const buttonBaseStyle = {
-    minHeight: 44,
-    padding: "0 18px",
-    borderRadius: 0,
-    cursor: "pointer",
-    fontWeight: 800,
-}
-
-const primaryButtonStyle = {
-    ...buttonBaseStyle,
-    border: "1px solid rgba(255,255,255,0.92)",
-    background: "#fff",
-    color: "#07070a",
-}
-
-const secondaryButtonStyle = {
-    ...buttonBaseStyle,
-    border: "1px solid rgba(255,255,255,0.22)",
-    background: "rgba(255,255,255,0.06)",
+const actionButtonStyle = {
+    minWidth: 255,
+    minHeight: 66,
+    padding: "0 34px",
+    border: "4px solid rgba(255,255,255,0.22)",
+    borderRadius: 999,
+    background: "rgba(0,0,0,0.22)",
     color: "#fff",
+    cursor: "pointer",
+    font: "700 20px/1 'General Sans', Inter, system-ui, sans-serif",
+    letterSpacing: "0.28em",
+    textTransform: "uppercase",
+    transition: "opacity 0.2s ease, background 0.2s ease, border-color 0.2s ease",
+}
+
+const skipButtonStyle = {
+    alignSelf: "center",
+    margin: "36px 0 0",
+    padding: 0,
+    border: "none",
+    background: "transparent",
+    color: "rgba(255,255,255,0.9)",
+    cursor: "pointer",
+    font: "400 16px/1.2 'General Sans', Inter, system-ui, sans-serif",
+    textDecoration: "underline",
+    textUnderlineOffset: 2,
 }

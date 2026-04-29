@@ -35,8 +35,20 @@ export default function App() {
     unregisterAssetServiceWorkers().catch(() => {})
   }
 
+  const requestFullscreen = () => {
+    if (document.fullscreenElement) return
+
+    document.documentElement.requestFullscreen?.().catch(() => {})
+  }
+
   if (!cacheConsent) {
-    return <EntryConsent onAccept={enterWithCache} onSkip={enterWithoutCache} />
+    return (
+      <EntryConsent
+        onAccept={enterWithCache}
+        onSkip={enterWithoutCache}
+        onRequestFullscreen={requestFullscreen}
+      />
+    )
   }
 
   return (
