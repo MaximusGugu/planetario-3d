@@ -25,6 +25,7 @@ export default function LabelsLayer({
     isInsideJupiter,
     cleanNavigationMode,
     freeFlightMode,
+    freeFlightHoverEnabled,
     autoHideUI,
     cfg,
     config,
@@ -36,25 +37,51 @@ export default function LabelsLayer({
     hoveredObjectName,
     labelsOnlyOnHover = false,
     sceneLabelsOnHover = false,
+    showMarkers = true,
 }) {
     return labels.map((label) => {
         const isFocusedTarget = focusedMoon && label.name === selectedName
         const isJupiterChild = isJupiterChildTarget(label.name)
         const isEarthChild = label.name === "Moon"
+        const isHovered = hoveredObjectName === label.name
+        const isAstronautMode = freeFlightMode === true
+        const isHardHiddenMode =
+            cleanNavigationMode ||
+            cfg.hideUI ||
+            cfg.showInterface === false
+        const canUsePersistentNormalMarker =
+            !isAstronautMode &&
+            !isHardHiddenMode &&
+            (!autoHideUI || hudOpen) &&
+            showMarkers &&
+            cfg.showInterface !== false
+        const canUseNormalHoverMarker =
+            !isAstronautMode && !isHardHiddenMode && isHovered
+        const canUseAstronautHoverMarker =
+            isAstronautMode && freeFlightHoverEnabled && isHovered
+        const canUseSceneHoverMarker = sceneLabelsOnHover && isHovered
+        const uiMarkersAllowed =
+            canUsePersistentNormalMarker ||
+            canUseNormalHoverMarker ||
+            canUseAstronautHoverMarker ||
+            canUseSceneHoverMarker
 
         const shouldShowBase =
             label.visible &&
             !isInsideJupiter &&
             (sceneLabelsOnHover || !isFocusedTarget) &&
             (sceneLabelsOnHover || !isJupiterChild || isJupiterContext()) &&
-            (!isEarthChild || selectedName === "Earth") &&
+            (isAstronautMode || !isEarthChild || selectedName === "Earth") &&
             (sceneLabelsOnHover || !cleanNavigationMode) &&
             (sceneLabelsOnHover || !cfg.hideUI || freeFlightMode) &&
             (sceneLabelsOnHover || !autoHideUI || hudOpen)
         const shouldShow =
+            label.visible &&
+            !isInsideJupiter &&
             shouldShowBase &&
-            (!labelsOnlyOnHover || hoveredObjectName === label.name) &&
-            (!hudOpen || hoveredObjectName === label.name)
+            uiMarkersAllowed &&
+            (!labelsOnlyOnHover || isHovered) &&
+            (!hudOpen || isHovered || isAstronautMode)
 
         return (
             <div
@@ -64,9 +91,12 @@ export default function LabelsLayer({
                     left: label.x,
                     top: label.y,
                     opacity: shouldShow ? 1 : 0,
+                    transition: shouldShow ? "opacity 0.16s" : "none",
                     pointerEvents: shouldShow ? "auto" : "none",
                     zIndex: 8000,
                 }}
+                data-sound-hover="objectHover"
+                data-sound-click="travel"
                 onPointerDown={(event) => {
                     event.stopPropagation()
                     onFocus(label.name)

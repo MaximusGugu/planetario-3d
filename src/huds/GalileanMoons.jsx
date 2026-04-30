@@ -119,8 +119,6 @@ const buildGalileanScene = (observation, index, scene = {}) => ({
             z: 0,
             scale: scene.moonScales?.[moon.name] || MOON_SCALES[moon.name] || 6,
             materialColor: 0xffffff,
-            emissive: 0xffffff,
-            emissiveIntensity: 0.12,
             includeChildren: false,
         })),
     ],

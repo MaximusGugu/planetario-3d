@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import * as THREE from "three"
 import { createCamera, getInitialCameraTarget } from "../core/camera.js"
 import { createControls } from "../core/controls.js"
@@ -59,6 +59,12 @@ import LoadingOverlay from "../ui/LoadingOverlay.jsx"
 import OverlayHost from "../ui/OverlayHost.jsx"
 import SettingsPanel from "../ui/SettingsPanel.jsx"
 import StarTravel from "./StarTravel.jsx"
+import {
+    getUserSettings,
+    sanitizeUserSettings,
+    saveUserSettings,
+} from "../utils/userSettings.js"
+import { createInteractionSoundController } from "../systems/sounds.js"
 
 const lerpAngle = (from, to, amount) => {
     const delta = Math.atan2(Math.sin(to - from), Math.cos(to - from))
@@ -130,6 +136,152 @@ const getLabelsSignature = (labels) =>
 const formatPerfNumber = (value, digits = 0) =>
     Number.isFinite(value) ? value.toFixed(digits) : "-"
 
+const getDefaultUserConfig = (props) => ({
+    sunIntensity: props.sunIntensity ?? 0.5,
+    bloomStrength: props.bloomStrength ?? 0.25,
+    bloomRadius: props.bloomRadius ?? 0.35,
+    bloomThreshold: props.bloomThreshold ?? 0.05,
+    ambientIntensity: props.ambientIntensity ?? 0,
+    orbitSpeed: props.orbitSpeed ?? 1,
+    rotateSpeed: props.rotateSpeed ?? 1,
+    autoRotate: props.autoRotate ?? 1,
+    showText: props.showText ?? 1,
+    hideUI: false,
+    showInterface: props.showInterface ?? true,
+    showMarkers: props.showMarkers ?? true,
+    showHudOnFocus: props.showHudOnFocus ?? true,
+    pinMenu: props.pinMenu ?? false,
+    zoomSensitivity: props.zoomSensitivity ?? 1,
+    rotationSensitivity: props.rotationSensitivity ?? 1,
+    freeFlightSpeed: props.freeFlightSpeed ?? 1,
+    showVolumetricRings: props.showVolumetricRings ?? true,
+    showNaturalSatellites: props.showNaturalSatellites ?? true,
+    satelliteSpeed: props.satelliteSpeed ?? 1,
+    showAsteroidBelt: props.showAsteroidBelt ?? true,
+    showOrbitTrails: props.showOrbitTrails ?? false,
+    systemScale: props.systemScale ?? 0,
+    pauseSimulationOnFocus: props.pauseSimulationOnFocus ?? false,
+    showFocusLightOnOrbit: props.showFocusLightOnOrbit ?? true,
+    shadowIntensity: props.shadowIntensity ?? 1,
+    displayMode: props.displayMode ?? "quality",
+})
+
+const getSystemScaleMultipliers = (value = 0) => {
+    const amount = THREE.MathUtils.clamp(value, 0, 1)
+    return {
+        planetDistance: THREE.MathUtils.lerp(1, 1, amount),
+        satelliteDistance: THREE.MathUtils.lerp(1, 1, amount),
+    }
+}
+
+const REAL_ORBIT_AU = {
+    Mercury: 0.387,
+    Venus: 0.723,
+    Earth: 1,
+    Mars: 1.524,
+    Jupiter: 5.204,
+    Saturn: 9.582,
+    Uranus: 19.201,
+    Neptune: 30.047,
+}
+
+const REAL_JUPITER_MOON_RADII = {
+    IO: 5.9,
+    Europa: 9.4,
+    Ganymede: 15,
+    Callisto: 26.3,
+}
+
+const getScaledPlanetDistance = (
+    name,
+    baseDistance,
+    systemScale = 0,
+    earthBaseDistance = 24
+) => {
+    const amount = THREE.MathUtils.clamp(systemScale ?? 0, 0, 1)
+    const realAu = REAL_ORBIT_AU[name]
+
+    if (!Number.isFinite(realAu)) return baseDistance
+
+    const realDistance =
+        (realAu / REAL_ORBIT_AU.Earth) * earthBaseDistance
+
+    return THREE.MathUtils.lerp(baseDistance, realDistance, amount)
+}
+
+const getScaledSatelliteDistance = ({
+    name,
+    baseDistance,
+    systemScale = 0,
+    parentRadius = 1,
+}) => {
+    const amount = THREE.MathUtils.clamp(systemScale ?? 0, 0, 1)
+    let realDistance = baseDistance
+
+    if (name === "Moon") {
+        realDistance = parentRadius * 60.3
+    } else if (REAL_JUPITER_MOON_RADII[name]) {
+        realDistance = parentRadius * REAL_JUPITER_MOON_RADII[name]
+    }
+
+    return THREE.MathUtils.lerp(baseDistance, realDistance, amount)
+}
+
+const getDisplayModeSettings = (mode) => {
+    if (mode === "performance") {
+        return {
+            maxPixelRatio: 1,
+            labelUpdateIntervalMs: 80,
+            ringDetailMode: "focusOnly",
+            ringDetailMinViewportHeight: 0.28,
+            bloomStrengthMultiplier: 0.68,
+            shadowMultiplier: 0.55,
+        }
+    }
+
+    if (mode === "balanced") {
+        return {
+            maxPixelRatio: 1.5,
+            labelUpdateIntervalMs: 45,
+            ringDetailMode: "contextual",
+            ringDetailMinViewportHeight: 0.22,
+            bloomStrengthMultiplier: 0.86,
+            shadowMultiplier: 0.82,
+        }
+    }
+
+    return {
+        maxPixelRatio: 2,
+        labelUpdateIntervalMs: null,
+        ringDetailMode: null,
+        ringDetailMinViewportHeight: null,
+        bloomStrengthMultiplier: 1,
+        shadowMultiplier: 1,
+    }
+}
+
+const createOrbitTrail = ({ radius = 1, color = 0xffffff, opacity = 0.18 }) => {
+    const segments = 160
+    const points = []
+
+    for (let index = 0; index <= segments; index += 1) {
+        const angle = (index / segments) * Math.PI * 2
+        points.push(new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)))
+    }
+
+    const geometry = new THREE.BufferGeometry().setFromPoints(points)
+    const material = new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+    })
+    const line = new THREE.LineLoop(geometry, material)
+    line.scale.setScalar(radius)
+    line.visible = false
+    line.renderOrder = 1
+    return line
+}
 export default function SolarSystemRenderer(externalProps) {
     const props = useMemo(
         () => ({ ...rendererConfig, ...(externalProps || {}) }),
@@ -168,6 +320,7 @@ export default function SolarSystemRenderer(externalProps) {
     const uranusRingDebrisRef = useRef(null)
     const neptuneRingsGroup = useRef(new THREE.Group())
     const neptuneRingDebrisRef = useRef(null)
+    const orbitTrailsRef = useRef(new THREE.Group())
     const ringShadowRefs = useRef({})
     const labelsLastUpdateRef = useRef(0)
     const labelsSignatureRef = useRef("")
@@ -204,11 +357,11 @@ export default function SolarSystemRenderer(externalProps) {
     const [hudAccordionResetKey, setHudAccordionResetKey] = useState(0)
     const [isInsideJupiter, setIsInsideJupiter] = useState(false)
     const [showSettings, setShowSettings] = useState(false)
-    const [settingsAnchorX, setSettingsAnchorX] = useState(null)
     const [autoHideUI, setAutoHideUI] = useState(false)
 
     const [cleanNavigationMode, setCleanNavigationMode] = useState(false)
     const [freeFlightMode, setFreeFlightMode] = useState(false)
+    const [freeFlightHoverEnabled, setFreeFlightHoverEnabled] = useState(false)
     const [showFreeFlightHint, setShowFreeFlightHint] = useState(false)
     const [menuHoverZone, setMenuHoverZone] = useState(false)
     const ignoreMenuHoverRef = useRef(false)
@@ -216,6 +369,9 @@ export default function SolarSystemRenderer(externalProps) {
     const [menuForceHidden, setMenuForceHidden] = useState(false)
     const menuRevealUnlockAtRef = useRef(0)
     const [isFullscreen, setIsFullscreen] = useState(false)
+    const [musicMenuOpen, setMusicMenuOpen] = useState(false)
+    const [musicPlaying, setMusicPlaying] = useState(true)
+    const [musicVolume, setMusicVolume] = useState(0.4)
 
     const [activeScene, setActiveScene] = useState(null)
     const [simMenuOpen, setSimMenuOpen] = useState(false)
@@ -229,29 +385,39 @@ export default function SolarSystemRenderer(externalProps) {
     const [loadingProgress, setLoadingProgress] = useState(0)
     const [perfStats, setPerfStats] = useState(null)
 
-    const [cfg, setCfg] = useState({
-        sunIntensity: props.sunIntensity ?? 0.5,
-        bloomStrength: props.bloomStrength ?? 0.25,
-        bloomRadius: props.bloomRadius ?? 0.35,
-        bloomThreshold: props.bloomThreshold ?? 0.05,
-        ambientIntensity: props.ambientIntensity,
-        orbitSpeed: props.orbitSpeed ?? 1,
-        rotateSpeed: props.rotateSpeed ?? 1,
-        autoRotate: props.autoRotate ?? 1,
-        showText: props.showText ?? 1,
-        hideUI: false,
-    })
+    const defaultUserConfig = useMemo(() => getDefaultUserConfig(props), [props])
+    const [cfg, setCfgState] = useState(() =>
+        getUserSettings(defaultUserConfig)
+    )
+    const setCfg = useCallback(
+        (updater) => {
+            setCfgState((previous) => {
+                const next =
+                    typeof updater === "function" ? updater(previous) : updater
+                const sanitized = sanitizeUserSettings(
+                    next,
+                    getDefaultUserConfig(props)
+                )
+                saveUserSettings(sanitized)
+                return sanitized
+            })
+        },
+        [props]
+    )
 
     const cfgRef = useRef(cfg)
     const selectedMoonRef = useRef(null)
     const [selectedName, setSelectedName] = useState(null)
     const isInsideRef = useRef(false)
     const freeNavigationRef = useRef(false)
+    const soundControllerRef = useRef(null)
     const freeFlightKeysRef = useRef({
         KeyW: false,
         KeyA: false,
         KeyS: false,
         KeyD: false,
+        KeyQ: false,
+        KeyE: false,
         ShiftLeft: false,
         ShiftRight: false,
     })
@@ -395,6 +561,32 @@ export default function SolarSystemRenderer(externalProps) {
     useEffect(() => {
         focusedMoonRef.current = focusedMoon
     }, [focusedMoon])
+
+    useEffect(() => {
+        const container = containerRef.current
+        if (!container) return undefined
+
+        const controller = createInteractionSoundController()
+        controller.setMusicVolume(musicVolume)
+        soundControllerRef.current = controller
+        window.planetarioSounds = controller
+        const detach = controller.attach(container)
+
+        return () => {
+            detach()
+            controller.dispose()
+            if (window.planetarioSounds === controller) {
+                delete window.planetarioSounds
+            }
+            if (soundControllerRef.current === controller) {
+                soundControllerRef.current = null
+            }
+        }
+    }, [])
+
+    useEffect(() => {
+        soundControllerRef.current?.setMusicVolume(musicVolume)
+    }, [musicVolume])
 
     useEffect(() => {
         hudFeatureFocusRef.current = hudFeatureFocus
@@ -1159,30 +1351,62 @@ export default function SolarSystemRenderer(externalProps) {
     }
     const releaseToSpace = () => {
         if (freeFlightMode) {
-            returnToClosestTarget()
-            setFreeFlightMode(false)
+            const targetName = savedFocusRef.current || getClosestTargetName()
+
             freeNavigationRef.current = false
+            setSelectedTarget(targetName)
+            focusedMoonRef.current = null
+            currentViewRef.current = { mode: "locked", target: targetName }
+            targetDistance.current = getOrbitDistance(targetName)
+            currentDistance.current = targetDistance.current
+            setFocusedMoon(null)
+            setIsInsideJupiter(false)
+            isInsideRef.current = false
+            setCfg((prev) => ({ ...prev, hideUI: false }))
+            setAutoHideUI(false)
+            setMenuForceHidden(false)
+            setMenuHoverZone(false)
+            setFreeFlightHoverEnabled(false)
+            setFreeFlightMode(false)
             return
         }
+
+        const lastOrbitTarget =
+            selectedMoonRef.current ||
+            getLandingTargetName(focusedMoonRef.current) ||
+            getClosestTargetName()
 
         pushCurrentViewToHistory()
 
         hasUserInteractedRef.current = true
         freeNavigationRef.current = true
+        savedFocusRef.current = lastOrbitTarget
+        savedDistanceRef.current = targetDistance.current
         setSelectedTarget(null)
         focusedMoonRef.current = null
-        savedFocusRef.current = null
-        savedDistanceRef.current = null
         currentViewRef.current = { mode: "free", target: null }
 
         setCleanNavigationMode(false)
         setFreeFlightMode(true)
+        setFreeFlightHoverEnabled(false)
         setFocusedMoon(null)
+        setHoveredObjectName(null)
         setIsInsideJupiter(false)
         isInsideRef.current = false
         setShowSettings(false)
 
         setCfg((prev) => ({ ...prev, hideUI: true }))
+<<<<<<< HEAD
+=======
+        setAutoHideUI(false)
+        setMenuForceHidden(false)
+        setMenuHoverZone(false)
+        menuRevealUnlockAtRef.current = Date.now() + 700
+        window.setTimeout(() => {
+            if (!freeNavigationRef.current) return
+            setAutoHideUI(true)
+        }, 700)
+>>>>>>> 1d55012 (Add audio controls and settings experience)
         setShowFreeFlightHint(true)
         window.setTimeout(() => {
             setShowFreeFlightHint(false)
@@ -1369,6 +1593,7 @@ export default function SolarSystemRenderer(externalProps) {
         uranusRingDebrisRef.current = null
         neptuneRingsGroup.current.clear()
         neptuneRingDebrisRef.current = null
+        orbitTrailsRef.current.clear()
         ringShadowRefs.current = {}
 
         const renderer = createRenderer({
@@ -1384,6 +1609,7 @@ export default function SolarSystemRenderer(externalProps) {
             ringsGroup: ringsGroup.current,
         })
         sceneRef.current = scene
+        solarSystemGroup.current.add(orbitTrailsRef.current)
         const camera = createCamera({
             container,
             config: props,
@@ -1422,6 +1648,9 @@ export default function SolarSystemRenderer(externalProps) {
             setLoadingProgress(100)
             setTimeout(() => {
                 setIsLoadingAssets(false)
+                soundControllerRef.current?.play("afterLoading", {
+                    queueUntilUnlock: true,
+                })
             }, 300)
         }
 
@@ -1597,10 +1826,17 @@ export default function SolarSystemRenderer(externalProps) {
             texture: makeRadialGlowTexture({
                 stops: [
                     [0.0, "rgba(255,255,255,0.85)"],
+<<<<<<< HEAD
                     [0.18, "rgba(255,224,92,0.52)"],
                     [0.42, "rgba(255,92,18,0.26)"],
                     [0.68, "rgba(198,30,7,0.12)"],
                     [1.0, "rgba(115,8,4,0)"],
+=======
+                    [0.18, "rgba(255,238,126,0.54)"],
+                    [0.42, "rgba(255,198,44,0.24)"],
+                    [0.68, "rgba(255,145,22,0.1)"],
+                    [1.0, "rgba(255,120,18,0)"],
+>>>>>>> 1d55012 (Add audio controls and settings experience)
                 ],
             }),
             opacity: props.sunOuterGlowOpacity ?? 0.16,
@@ -1612,11 +1848,19 @@ export default function SolarSystemRenderer(externalProps) {
             texture: makeRadialGlowTexture({
                 stops: [
                     [0.0, "rgba(255,255,255,1)"],
+<<<<<<< HEAD
                     [0.22, "rgba(255,224,96,0.9)"],
                     [0.42, "rgba(255,96,14,0.78)"],
                     [0.58, "rgba(255,54,6,0.48)"],
                     [0.76, "rgba(255,34,4,0.16)"],
                     [1.0, "rgba(255,28,4,0)"],
+=======
+                    [0.22, "rgba(255,242,132,0.9)"],
+                    [0.42, "rgba(255,208,44,0.72)"],
+                    [0.58, "rgba(255,172,24,0.34)"],
+                    [0.76, "rgba(255,138,20,0.1)"],
+                    [1.0, "rgba(255,126,20,0)"],
+>>>>>>> 1d55012 (Add audio controls and settings experience)
                 ],
             }),
             opacity: props.sunFireAuraOpacity ?? 0.38,
@@ -1659,6 +1903,10 @@ export default function SolarSystemRenderer(externalProps) {
             let mesh
             let axialGroup = null
             let ringParent = null
+<<<<<<< HEAD
+=======
+            let orbitBody = null
+>>>>>>> 1d55012 (Add audio controls and settings experience)
 
             if (planet.name === "Earth") {
                 const earthSystem = createEarth({
@@ -1673,6 +1921,7 @@ export default function SolarSystemRenderer(externalProps) {
                 moonsRef.current["Earth_Clouds"] = earthSystem.clouds
                 moonsRef.current["Earth_Atmosphere"] = earthSystem.atmosphere
                 mesh.userData.isEarthShader = true
+                orbitBody = earthSystem.root
             } else {
                 mesh = makeSphere({
                     name: planet.name,
@@ -1698,9 +1947,17 @@ export default function SolarSystemRenderer(externalProps) {
                     axialGroup.add(mesh)
                     pivot.add(axialGroup)
                     ringParent = axialGroup
+<<<<<<< HEAD
                 } else {
                     pivot.add(mesh)
                     ringParent = mesh
+=======
+                    orbitBody = axialGroup
+                } else {
+                    pivot.add(mesh)
+                    ringParent = mesh
+                    orbitBody = mesh
+>>>>>>> 1d55012 (Add audio controls and settings experience)
                 }
             }
 
@@ -1728,11 +1985,14 @@ export default function SolarSystemRenderer(externalProps) {
                 moonPivot.add(earthMoon)
 
                 moonsRef.current["Moon"] = earthMoon
+                const earthMoonBaseDistance = props.earthMoonDist ?? 1.35
 
                 pivotsRef.current["Moon"] = {
                     pivot: moonPivot,
                     mesh: earthMoon,
                     speed: props.earthMoonSpeed ?? 1,
+                    basePosition: earthMoon.position.clone(),
+                    parent: "Earth",
                 }
 
                 planetPivotsRef.current["Moon"] = {
@@ -1740,10 +2000,11 @@ export default function SolarSystemRenderer(externalProps) {
                     mesh: earthMoon,
                     speed: props.earthMoonSpeed ?? 1,
                     type: "moon",
+                    basePosition: earthMoon.position.clone(),
+                    parent: "Earth",
                 }
 
-                pivotsRef.current["Moon"].distance =
-                    props.earthMoonDist ?? 1.35
+                pivotsRef.current["Moon"].distance = earthMoonBaseDistance
                 pivotsRef.current["Moon"].eccentricity =
                     props.earthMoonEccentricity ?? 0.055
                 pivotsRef.current["Moon"].inclination =
@@ -1762,6 +2023,18 @@ export default function SolarSystemRenderer(externalProps) {
                     parent: "Earth",
                     children: [],
                 })
+                const moonTrail = createOrbitTrail({
+                    radius: earthMoonBaseDistance,
+                    color: 0xaaaabb,
+                    opacity: 0.18,
+                })
+                moonTrail.userData = {
+                    baseRadius: earthMoonBaseDistance,
+                    kind: "satellite",
+                    parent: "Earth",
+                    targetName: "Moon",
+                }
+                moonPivot.add(moonTrail)
                 const earthUnit = getSceneUnit("Earth")
                 if (earthUnit) {
                     earthUnit.children = [
@@ -1822,6 +2095,11 @@ export default function SolarSystemRenderer(externalProps) {
                     segments: props.saturnSegments ?? 96,
                     faceOnFade: props.saturnRingShadowFaceOnFade ?? 0.18,
                 })
+<<<<<<< HEAD
+=======
+                ringShadowRefs.current.Saturn.userData.baseOpacity =
+                    props.saturnRingPlanetShadowOpacity ?? 0.2
+>>>>>>> 1d55012 (Add audio controls and settings experience)
                 ringParent.add(saturnRingsGroup.current)
             }
 
@@ -1873,6 +2151,11 @@ export default function SolarSystemRenderer(externalProps) {
                     segments: props.uranusSegments ?? 96,
                     faceOnFade: props.uranusRingShadowFaceOnFade ?? 0.95,
                 })
+<<<<<<< HEAD
+=======
+                ringShadowRefs.current.Uranus.userData.baseOpacity =
+                    props.uranusRingPlanetShadowOpacity ?? 0.16
+>>>>>>> 1d55012 (Add audio controls and settings experience)
                 ringParent.add(uranusRingsGroup.current)
             }
 
@@ -1924,6 +2207,11 @@ export default function SolarSystemRenderer(externalProps) {
                     segments: props.neptuneSegments ?? 96,
                     faceOnFade: props.neptuneRingShadowFaceOnFade ?? 0.35,
                 })
+<<<<<<< HEAD
+=======
+                ringShadowRefs.current.Neptune.userData.baseOpacity =
+                    props.neptuneRingPlanetShadowOpacity ?? 0.18
+>>>>>>> 1d55012 (Add audio controls and settings experience)
                 ringParent.add(neptuneRingsGroup.current)
             }
 
@@ -1931,11 +2219,27 @@ export default function SolarSystemRenderer(externalProps) {
             planetPivotsRef.current[planet.name] = {
                 pivot,
                 mesh,
+<<<<<<< HEAD
+=======
+                orbitBody,
+                baseDistance: planet.dist,
+>>>>>>> 1d55012 (Add audio controls and settings experience)
                 axialGroup,
                 speed: planet.speed,
                 rotationDirection: planet.rotationDirection ?? 1,
                 type: "planet",
             }
+            const planetTrail = createOrbitTrail({
+                radius: planet.dist,
+                color: planet.color,
+                opacity: 0.13,
+            })
+            planetTrail.userData = {
+                baseRadius: planet.dist,
+                kind: "planet",
+                targetName: planet.name,
+            }
+            pivot.add(planetTrail)
             registerSceneUnit({
                 name: planet.name,
                 type: "planet",
@@ -1997,9 +2301,22 @@ export default function SolarSystemRenderer(externalProps) {
         planetPivotsRef.current["Jupiter"] = {
             pivot: jupiterOrbitPivot.current,
             mesh: jupiter,
+            orbitBody: jupiterGroup.current,
+            baseDistance: jupiterOrbitDist,
             speed: props.jupiterOrbitSpeed ?? 0.45,
             type: "planet",
         }
+        const jupiterOrbitTrail = createOrbitTrail({
+            radius: jupiterOrbitDist,
+            color: DEFAULT_SYSTEM.Jupiter.color,
+            opacity: 0.13,
+        })
+        jupiterOrbitTrail.userData = {
+            baseRadius: jupiterOrbitDist,
+            kind: "planet",
+            targetName: "Jupiter",
+        }
+        jupiterOrbitPivot.current.add(jupiterOrbitTrail)
 
         registerSceneUnit({
             name: "Jupiter",
@@ -2121,12 +2438,14 @@ export default function SolarSystemRenderer(externalProps) {
                 pivot,
                 mesh,
                 speed: 1 - index * 0.1,
+                basePosition: mesh.position.clone(),
             }
             planetPivotsRef.current[moon.name] = {
                 pivot,
                 mesh,
                 speed: 1 - index * 0.1,
                 type: "moon",
+                basePosition: mesh.position.clone(),
             }
             registerSceneUnit({
                 name: moon.name,
@@ -2138,6 +2457,24 @@ export default function SolarSystemRenderer(externalProps) {
                 parent: "Jupiter",
                 children: [],
             })
+            const moonTrail = createOrbitTrail({
+                radius: Math.max(
+                    0.001,
+                    Math.hypot(moon.position[0], moon.position[2])
+                ),
+                color: moon.color,
+                opacity: 0.2,
+            })
+            moonTrail.userData = {
+                baseRadius: Math.max(
+                    0.001,
+                    Math.hypot(moon.position[0], moon.position[2])
+                ),
+                kind: "satellite",
+                parent: "Jupiter",
+                targetName: moon.name,
+            }
+            pivot.add(moonTrail)
 
             const jupiterUnit = getSceneUnit("Jupiter")
             if (jupiterUnit) {
@@ -2217,10 +2554,22 @@ export default function SolarSystemRenderer(externalProps) {
                 -((event.clientY - rect.top) / rect.height) * 2 + 1
             )
 
+            if (freeNavigationRef.current && cfgRef.current.hideUI) {
+                setFreeFlightHoverEnabled(true)
+            }
+
             // 👇 NOVO: reset de inatividade
             isUserActiveRef.current = true
 
+<<<<<<< HEAD
             if (!(freeNavigationRef.current && cfgRef.current.hideUI)) {
+=======
+            if (
+                !(freeNavigationRef.current && cfgRef.current.hideUI) &&
+                cfgRef.current.pinMenu !== true &&
+                cfgRef.current.showInterface !== false
+            ) {
+>>>>>>> 1d55012 (Add audio controls and settings experience)
                 setAutoHideUI(false)
 
                 if (inactivityTimerRef.current) {
@@ -2246,7 +2595,10 @@ export default function SolarSystemRenderer(externalProps) {
                 p.minZoom ?? 0.05,
                 Math.min(
                     p.maxZoomLimit ?? 1000,
-                    targetDistance.current + event.deltaY * 0.005
+                    targetDistance.current +
+                        event.deltaY *
+                            0.005 *
+                            (cfgRef.current.zoomSensitivity ?? 1)
                 )
             )
         }
@@ -2254,6 +2606,24 @@ export default function SolarSystemRenderer(externalProps) {
         container.addEventListener("wheel", handleWheel, {
             passive: true,
         })
+        ringShadowRefs.current.Jupiter.userData.baseOpacity =
+            props.jupiterRingPlanetShadowOpacity ?? 0.17
+
+        const handleKey = (event, pressed) => {
+            if (!(event.code in freeFlightKeysRef.current)) return
+
+            if (freeNavigationRef.current) {
+                event.preventDefault()
+            }
+
+            freeFlightKeysRef.current[event.code] = pressed
+        }
+
+        const handleKeyDown = (event) => handleKey(event, true)
+        const handleKeyUp = (event) => handleKey(event, false)
+
+        window.addEventListener("keydown", handleKeyDown)
+        window.addEventListener("keyup", handleKeyUp)
 
         const handleKey = (event, pressed) => {
             if (!(event.code in freeFlightKeysRef.current)) return
@@ -2278,23 +2648,53 @@ export default function SolarSystemRenderer(externalProps) {
             const c = cfgRef.current
             const ctrl = controlsRef.current
             const cam = cameraRef.current
+            const displayModeSettings = getDisplayModeSettings(c.displayMode)
+            const scaleMultipliers = getSystemScaleMultipliers(c.systemScale)
             const activeSceneName = activeSceneRef.current
             const activeSceneConfig =
                 runtimeSceneConfigRef.current ||
                 (activeSceneName ? getSceneConfig(p, activeSceneName) : null)
             const isRealScaleScene = activeSceneName === "realScaleLine"
+<<<<<<< HEAD
+=======
+            const isGalileanRuntimeScene =
+                activeSceneConfig?.interactionMode === "galilean"
+>>>>>>> 1d55012 (Add audio controls and settings experience)
             const previousFrameTime = perfFrameRef.current.lastFrameTime || time
             const frameDelta = Math.max(0, time - previousFrameTime)
             perfFrameRef.current.lastFrameTime = time
             perfFrameRef.current.frames += 1
             perfFrameRef.current.frameTotal += frameDelta
 
+<<<<<<< HEAD
+=======
+            const desiredPixelRatio = Math.min(
+                window.devicePixelRatio || 1,
+                displayModeSettings.maxPixelRatio
+            )
+            if (renderer.getPixelRatio() !== desiredPixelRatio) {
+                renderer.setPixelRatio(desiredPixelRatio)
+            }
+
+            if (ctrl) {
+                ctrl.rotateSpeed =
+                    (p.controlsRotateSpeed ?? 0.7) *
+                    (c.rotationSensitivity ?? 1)
+            }
+
+>>>>>>> 1d55012 (Add audio controls and settings experience)
             if (freeNavigationRef.current && cam && ctrl) {
                 const keys = freeFlightKeysRef.current
                 const forwardInput = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0)
                 const strafeInput = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0)
+<<<<<<< HEAD
 
                 if (forwardInput || strafeInput) {
+=======
+                const verticalInput = (keys.KeyE ? 1 : 0) - (keys.KeyQ ? 1 : 0)
+
+                if (forwardInput || strafeInput || verticalInput) {
+>>>>>>> 1d55012 (Add audio controls and settings experience)
                     const forward = new THREE.Vector3()
                     cam.getWorldDirection(forward)
                     forward.y = 0
@@ -2310,6 +2710,10 @@ export default function SolarSystemRenderer(externalProps) {
                         .normalize()
                     const speed =
                         (p.freeFlightKeyboardSpeed ?? 0.08) *
+<<<<<<< HEAD
+=======
+                        (c.freeFlightSpeed ?? 1) *
+>>>>>>> 1d55012 (Add audio controls and settings experience)
                         ((keys.ShiftLeft || keys.ShiftRight)
                             ? (p.freeFlightKeyboardBoost ?? 2)
                             : 1) *
@@ -2317,6 +2721,14 @@ export default function SolarSystemRenderer(externalProps) {
                     const movement = forward
                         .multiplyScalar(forwardInput * speed)
                         .add(right.multiplyScalar(strafeInput * speed))
+<<<<<<< HEAD
+=======
+                        .add(
+                            new THREE.Vector3(0, 1, 0).multiplyScalar(
+                                verticalInput * speed
+                            )
+                        )
+>>>>>>> 1d55012 (Add audio controls and settings experience)
 
                     cam.position.add(movement)
                     ctrl.target.add(movement)
@@ -2330,9 +2742,9 @@ export default function SolarSystemRenderer(externalProps) {
                     sunMesh.material.color.set(p.realScaleSunTint ?? 0xff5a1f)
                 } else {
                     sunMesh.material.color.setRGB(
-                        p.sunColorR ?? 1.2,
-                        p.sunColorG ?? 1.1,
-                        p.sunColorB ?? 0.9
+                        p.sunColorR ?? 1.1,
+                        p.sunColorG ?? 1.05,
+                        p.sunColorB ?? 0.95
                     )
                 }
             }
@@ -2517,25 +2929,60 @@ export default function SolarSystemRenderer(externalProps) {
             updateRingLight(saturnRingsGroup.current)
             updateRingLight(uranusRingsGroup.current)
             updateRingLight(neptuneRingsGroup.current)
+            const shadowMultiplier =
+                (c.shadowIntensity ?? 1) *
+                (displayModeSettings.shadowMultiplier ?? 1)
+            const updateRingMaterial = (
+                ringMesh,
+                { opacity, lightBoost, shadowStrength }
+            ) => {
+                const uniforms = ringMesh?.material?.uniforms
+                if (!uniforms) return
+                if (uniforms.opacity) uniforms.opacity.value = opacity
+                if (uniforms.lightBoost) uniforms.lightBoost.value = lightBoost
+                if (uniforms.shadowStrength) {
+                    uniforms.shadowStrength.value =
+                        shadowStrength * shadowMultiplier
+                }
+            }
+            updateRingMaterial(ringsGroup.current.children[0], {
+                opacity: p.ringOpacity ?? 0.75,
+                lightBoost: p.ringLightBoost ?? 0.55,
+                shadowStrength: p.ringShadowStrength ?? 0.6,
+            })
+            updateRingMaterial(saturnRingsGroup.current, {
+                opacity: isRealScaleScene
+                    ? (p.realScaleSaturnRingOpacity ?? 0.82)
+                    : (p.saturnRingOpacity ?? 0.55),
+                lightBoost: isRealScaleScene
+                    ? (p.realScaleSaturnRingLightBoost ?? 1.55)
+                    : (p.saturnRingLightBoost ?? 0.5),
+                shadowStrength: isRealScaleScene
+                    ? (p.realScaleSaturnRingShadowStrength ?? 0.25)
+                    : (p.saturnRingShadowStrength ?? 0.75),
+            })
+            updateRingMaterial(uranusRingsGroup.current, {
+                opacity: p.uranusRingOpacity ?? 0.35,
+                lightBoost: p.uranusRingLightBoost ?? 0.45,
+                shadowStrength: p.uranusRingShadowStrength ?? 0.65,
+            })
+            updateRingMaterial(neptuneRingsGroup.current, {
+                opacity: p.neptuneRingOpacity ?? 0.3,
+                lightBoost: p.neptuneRingLightBoost ?? 0.55,
+                shadowStrength: p.neptuneRingShadowStrength ?? 0.65,
+            })
             Object.values(ringShadowRefs.current).forEach((shadowShell) => {
                 if (!shadowShell?.material?.uniforms?.sunWorldPosition) return
                 shadowShell.visible = false
                 shadowShell.material.uniforms.sunWorldPosition.value.copy(
                     sunWorldPos
                 )
+                if (shadowShell.material.uniforms.opacity) {
+                    shadowShell.material.uniforms.opacity.value =
+                        (shadowShell.userData.baseOpacity ?? 0.18) *
+                        shadowMultiplier
+                }
             })
-            if (saturnRingsGroup.current?.material?.uniforms) {
-                const uniforms = saturnRingsGroup.current.material.uniforms
-                uniforms.opacity.value = isRealScaleScene
-                    ? (p.realScaleSaturnRingOpacity ?? 0.82)
-                    : (p.saturnRingOpacity ?? 0.55)
-                uniforms.lightBoost.value = isRealScaleScene
-                    ? (p.realScaleSaturnRingLightBoost ?? 1.55)
-                    : (p.saturnRingLightBoost ?? 0.5)
-                uniforms.shadowStrength.value = isRealScaleScene
-                    ? (p.realScaleSaturnRingShadowStrength ?? 0.25)
-                    : (p.saturnRingShadowStrength ?? 0.75)
-            }
 
             let focusModeActive = false
             let hudFeatureMotionActive = false
@@ -2567,6 +3014,17 @@ export default function SolarSystemRenderer(externalProps) {
                 )
 
                 const rect = container.getBoundingClientRect()
+                const earthItem = planetPivotsRef.current.Earth
+                const earthBaseDistance =
+                    earthItem?.baseDistance ?? p.earthDist ?? 24
+                const earthRadius =
+                    p.earthSize ??
+                    getObjectWorldRadius(getSceneUnit("Earth")) ??
+                    0.36
+                const jupiterRadiusForScale =
+                    getObjectWorldRadius(getSceneUnit("Jupiter")) ??
+                    p.jupiterRadius ??
+                    1
 
                 syncRendererSize({
                     renderer,
@@ -2581,9 +3039,122 @@ export default function SolarSystemRenderer(externalProps) {
                     (p.zoomSmoothness ?? 0.05)
 
                 const selectedName = selectedMoonRef.current
+<<<<<<< HEAD
                 const getRingPlanetDetailVisible = (name) => {
                     if (p.ringDetailMode === "always") return true
                     if (p.ringDetailMode === "focusOnly") {
+=======
+                Object.values(planetPivotsRef.current).forEach((item) => {
+                    if (!item) return
+
+                    if (
+                        item.type === "planet" &&
+                        item.orbitBody &&
+                        Number.isFinite(item.baseDistance)
+                    ) {
+                        item.orbitBody.position.x =
+                            getScaledPlanetDistance(
+                                item.mesh?.name ?? "",
+                                item.baseDistance,
+                                c.systemScale,
+                                earthBaseDistance
+                            )
+                    }
+
+                    if (item.type === "moon") {
+                        const isEarthMoon = item.mesh?.name === "Moon"
+                        const visible =
+                            c.showNaturalSatellites !== false ||
+                            isGalileanRuntimeScene ||
+                            selectedName === item.mesh?.name ||
+                            focusedMoonRef.current === item.mesh?.name
+                        if (item.pivot) item.pivot.visible = visible
+                        if (isEarthMoon) {
+                            const earthDistance = getScaledPlanetDistance(
+                                "Earth",
+                                earthBaseDistance,
+                                c.systemScale,
+                                earthBaseDistance
+                            )
+                            if (item.pivot) item.pivot.position.x = earthDistance
+
+                            const moonConfig = pivotsRef.current.Moon
+                            const baseMoonDistance =
+                                moonConfig?.distance ??
+                                item.basePosition?.length() ??
+                                p.earthMoonDist ??
+                                1.35
+                            const scaledMoonDistance = getScaledSatelliteDistance({
+                                name: "Moon",
+                                baseDistance: baseMoonDistance,
+                                systemScale: c.systemScale,
+                                parentRadius: earthRadius,
+                            })
+                            if (moonConfig) {
+                                moonConfig.distanceMultiplier =
+                                    scaledMoonDistance / baseMoonDistance
+                            }
+                        } else if (item.basePosition && item.mesh) {
+                            const baseDistance = item.basePosition.length()
+                            const scaledDistance = getScaledSatelliteDistance({
+                                name: item.mesh.name,
+                                baseDistance,
+                                systemScale: c.systemScale,
+                                parentRadius: jupiterRadiusForScale,
+                            })
+                            item.mesh.position
+                                .copy(item.basePosition)
+                                .normalize()
+                                .multiplyScalar(scaledDistance)
+                        }
+                    }
+                })
+                orbitTrailsRef.current.traverse((object) => {
+                    if (!object.isLine) return
+                    object.visible = c.showOrbitTrails === true && !isRealScaleScene
+                })
+                scene.traverse((object) => {
+                    if (!object.isLine || !object.userData?.kind) return
+                    object.visible = c.showOrbitTrails === true && !isRealScaleScene
+                    if (object.userData.kind === "planet") {
+                        object.scale.setScalar(
+                            getScaledPlanetDistance(
+                                object.userData.targetName,
+                                object.userData.baseRadius,
+                                c.systemScale,
+                                earthBaseDistance
+                            )
+                        )
+                    }
+                    if (object.userData.kind === "satellite") {
+                        const parentRadius =
+                            object.userData.parent === "Earth"
+                                ? earthRadius
+                                : jupiterRadiusForScale
+                        object.scale.setScalar(
+                            getScaledSatelliteDistance({
+                                name: object.userData.targetName,
+                                baseDistance: object.userData.baseRadius,
+                                systemScale: c.systemScale,
+                                parentRadius,
+                            })
+                        )
+                    }
+                })
+                const asteroidBeltUnit = getSceneUnit("AsteroidBelt")?.root
+                if (asteroidBeltUnit) {
+                    asteroidBeltUnit.visible =
+                        c.showAsteroidBelt !== false &&
+                        (!activeSceneConfig?.objects?.length ||
+                            asteroidBeltUnit.visible !== false)
+                }
+                const getRingPlanetDetailVisible = (name) => {
+                    if (c.showVolumetricRings === false) return false
+                    const ringDetailMode =
+                        displayModeSettings.ringDetailMode ?? p.ringDetailMode
+                    if (ringDetailMode === "always") return true
+                    if (ringDetailMode === "focusOnly") {
+>>>>>>> 1d55012 (Add audio controls and settings experience)
                         return selectedName === name || focusedMoonRef.current === name
                     }
                     if (activeSceneName) return true
@@ -2614,7 +3185,13 @@ export default function SolarSystemRenderer(externalProps) {
 
                     return (
                         viewportHeight >=
+<<<<<<< HEAD
                         (p.ringDetailMinViewportHeight ?? 0.18)
+=======
+                        (displayModeSettings.ringDetailMinViewportHeight ??
+                            p.ringDetailMinViewportHeight ??
+                            0.18)
+>>>>>>> 1d55012 (Add audio controls and settings experience)
                     )
                 }
                 const ringVisuals = [
@@ -2713,6 +3290,8 @@ export default function SolarSystemRenderer(externalProps) {
                 if (
                     !activeHudTarget &&
                     selectedName &&
+                    (c.showHudOnFocus !== false ||
+                        activeSceneConfig?.interactionMode === "galilean") &&
                     !cfgRef.current.hideUI &&
                     isCameraSettledOnFocus &&
                     selectedViewportHeight > 0 &&
@@ -2976,7 +3555,14 @@ export default function SolarSystemRenderer(externalProps) {
                     }
                 }
 
+<<<<<<< HEAD
                 const labelUpdateInterval = p.labelUpdateIntervalMs ?? 33
+=======
+                const labelUpdateInterval =
+                    displayModeSettings.labelUpdateIntervalMs ??
+                    p.labelUpdateIntervalMs ??
+                    33
+>>>>>>> 1d55012 (Add audio controls and settings experience)
                 if (
                     time - labelsLastUpdateRef.current >=
                     labelUpdateInterval
@@ -3002,11 +3588,15 @@ export default function SolarSystemRenderer(externalProps) {
                         if (!obj) return
 
                         const unit = getSceneUnit(name)
+<<<<<<< HEAD
                         if (
                             activeSceneConfig?.objects?.length &&
                             unit?.root?.visible === false
                         )
                             return
+=======
+                        if (unit?.root?.visible === false) return
+>>>>>>> 1d55012 (Add audio controls and settings experience)
 
                         obj.getWorldPosition(labelPosition)
                         labelPosition.project(cam)
@@ -3038,7 +3628,10 @@ export default function SolarSystemRenderer(externalProps) {
                 }
             }
 
-            if (c.autoRotate) {
+            const simulationPausedByFocus =
+                c.pauseSimulationOnFocus === true && !!focusedMoonRef.current
+
+            if (c.autoRotate && !simulationPausedByFocus) {
                 Object.entries(planetPivotsRef.current).forEach(
                     ([name, item]) => {
                         if (item.type !== "planet") return
@@ -3131,6 +3724,12 @@ export default function SolarSystemRenderer(externalProps) {
                         selectedName: selectedMoonRef.current,
                         orbitSpeed: c.orbitSpeed,
                         rotateSpeed: c.rotateSpeed,
+<<<<<<< HEAD
+=======
+                        satelliteSpeed: c.satelliteSpeed ?? 1,
+                        satelliteDistanceMultiplier:
+                            scaleMultipliers.satelliteDistance,
+>>>>>>> 1d55012 (Add audio controls and settings experience)
                         jupiterMoonOrbitSpeedMultiplier:
                             p.jupiterMoonOrbitSpeedMultiplier ?? 0.22,
                         jupiterMoonRotateSpeedMultiplier:
@@ -3194,6 +3793,11 @@ export default function SolarSystemRenderer(externalProps) {
                 overrides: sceneCache.overrides,
             })
 
+            if (c.showAsteroidBelt === false) {
+                const asteroidBelt = getSceneUnit("AsteroidBelt")?.root
+                if (asteroidBelt) asteroidBelt.visible = false
+            }
+
             Object.values(sceneUnitsRef.current).forEach((unit) => {
                 if (unit?.body?.material && (unit.type === "planet" || unit.type === "moon")) {
                     if (
@@ -3209,10 +3813,17 @@ export default function SolarSystemRenderer(externalProps) {
             })
 
             const sceneSunMultiplier = 1
-            const sceneBloomMultiplier = isRealScaleScene ? 0.04 : 1
-
+            const galileanFocusLightTarget =
+                activeSceneConfig?.interactionMode === "galilean" &&
+                !!focusedMoonRef.current
             const focusLightMultiplier =
-                landingExperienceActive && !isRealScaleScene ? 1 : 0
+                c.showFocusLightOnOrbit === false
+                    ? 0
+                    : (landingExperienceActive ||
+                          (galileanFocusLightTarget && !!selectedName)) &&
+                        !isRealScaleScene
+                      ? 1
+                      : 0
             focusLightBlendRef.current +=
                 (focusLightMultiplier - focusLightBlendRef.current) *
                 (p.focusLightTransitionSpeed ?? 0.08)
@@ -3226,6 +3837,10 @@ export default function SolarSystemRenderer(externalProps) {
 
             const sunBlend = 1
             const sunEffectsAllowed = !isRealScaleScene && sunMesh.visible !== false
+<<<<<<< HEAD
+=======
+            const auraPulse = 1
+>>>>>>> 1d55012 (Add audio controls and settings experience)
             const visualGlowBlend = sunEffectsAllowed
                 ? sunGlowBlend * sceneSunMultiplier
                 : 0
@@ -3247,13 +3862,20 @@ export default function SolarSystemRenderer(externalProps) {
                     }
                 }
             )
-            const currentTargetName = focusedMoonRef.current || selectedMoonRef.current
-            const focusUnit = (focusLightBlendRef.current > 0.001 && currentTargetName) ? getSceneUnit(currentTargetName) : null
+            const currentTargetName =
+                galileanFocusLightTarget
+                    ? focusedMoonRef.current
+                    : focusedMoonRef.current || selectedMoonRef.current
+            const focusUnit = null
             setFocusLayerObject(focusUnit)
             if (focusRenderPass) {
+<<<<<<< HEAD
                 focusRenderPass.enabled =
                     focusLightBlend >
                     (p.focusRenderPassEnabledThreshold ?? 0.001)
+=======
+                focusRenderPass.enabled = false
+>>>>>>> 1d55012 (Add audio controls and settings experience)
             }
 
             sunFlareLight.visible = visualNormalFlareBlend > 0.02
@@ -3273,6 +3895,7 @@ export default function SolarSystemRenderer(externalProps) {
             outerGlow.material.opacity =
                 (p.sunOuterGlowOpacity ?? 0.16) * visualGlowBlend
 
+<<<<<<< HEAD
             const auraPulse =
                 1 +
                 Math.sin(time * (p.sunFireAuraPulseSpeed ?? 0.0018)) *
@@ -3284,19 +3907,36 @@ export default function SolarSystemRenderer(externalProps) {
                 (0.86 + (auraPulse - 1) * 0.8)
             fireAura.material.rotation =
                 time * (p.sunFireAuraRotationSpeed ?? 0.00012)
+=======
+            fireAura.visible = visualGlowBlend > 0.02
+            fireAura.material.opacity =
+                (p.sunFireAuraOpacity ?? 0.38) *
+                visualGlowBlend
+            fireAura.material.rotation = 0
+>>>>>>> 1d55012 (Add audio controls and settings experience)
             fireAura.scale.setScalar(fireAuraBaseScale * auraPulse)
 
             const baseSunIntensity =
                 (isRealScaleScene
                     ? (p.realScaleSunIntensity ?? 1.65)
                     : (c.sunIntensity ?? 8)) * sceneSunMultiplier
+            const galileanSunLight =
+                isGalileanRuntimeScene && cam
+                    ? baseSunIntensity *
+                      (p.galileanSunLightMultiplier ?? 1.35)
+                    : 0
 
-            // Use radial point light for background planets to avoid spotlight illusion
             sunLight.intensity = baseSunIntensity
-            directionalLight.intensity = 0
+            directionalLight.intensity = galileanSunLight
+            if (isGalileanRuntimeScene && cam) {
+                directionalLight.position.copy(cam.position)
+                directionalLight.target.position.copy(cameraTarget.current)
+            }
 
             focusedSunLight.intensity = baseSunIntensity * sunBlend
-            focusedDirectionalLight.intensity = baseSunIntensity * sunBlend
+            focusedDirectionalLight.intensity = isGalileanRuntimeScene
+                ? 0
+                : baseSunIntensity * sunBlend
 
             const baseFocusIntensity = (p.focusLightIntensity ?? 1.6) + (c.sunIntensity ?? 8)
             focusLight.intensity =
@@ -3304,13 +3944,19 @@ export default function SolarSystemRenderer(externalProps) {
                 focusLightBlend *
                 sceneSunMultiplier
             asteroidSunLight.intensity = 0
+            const focusAmbientBlend =
+                activeSceneConfig?.interactionMode === "galilean"
+                    ? 0
+                    : focusLightBlend
+            const shadowFillAmbient =
+                (1 - THREE.MathUtils.clamp(c.shadowIntensity ?? 1, 0, 1)) *
+                (p.shadowFillAmbientBoost ?? 0.22)
             ambient.intensity =
                 (c.ambientIntensity ?? 0.1) * sunBlend +
-                (p.focusAmbientIntensity ?? 0.08) * focusLightBlend +
-                (isRealScaleScene ? (p.realScaleAmbientIntensity ?? 0.28) : 0)
-            const baseBloomStrength =
-                (c.bloomStrength ?? p.bloomStrength ?? 0.55) *
-                sceneBloomMultiplier
+                (p.focusAmbientIntensity ?? 0.08) * focusAmbientBlend +
+                (isRealScaleScene ? (p.realScaleAmbientIntensity ?? 0.28) : 0) +
+                shadowFillAmbient
+            const baseBloomStrength = 0
             const baseBloomRadius = c.bloomRadius ?? p.bloomRadius ?? 0.65
             const baseBloomThreshold =
                 c.bloomThreshold ?? p.bloomThreshold ?? 0.04
@@ -3413,14 +4059,19 @@ export default function SolarSystemRenderer(externalProps) {
     const focusOn = (name) => {
         const wasFocused = focusedMoonRef.current === name
         const targetName = getLandingTargetName(name)
+        const shouldShowHud =
+            cfgRef.current.showHudOnFocus !== false ||
+            activeSceneRef.current ||
+            runtimeSceneConfigRef.current?.interactionMode === "galilean"
 
         pushCurrentViewToHistory()
+        soundControllerRef.current?.play("travel")
 
         hasUserInteractedRef.current = true
         freeNavigationRef.current = false
         setFreeFlightMode(false)
         setSelectedTarget(targetName)
-        focusedMoonRef.current = name
+        focusedMoonRef.current = shouldShowHud ? name : null
         if (name !== "Jupiter") {
             setHudFeatureFocus(null)
             hudFeatureFocusRef.current = null
@@ -3434,7 +4085,9 @@ export default function SolarSystemRenderer(externalProps) {
         targetDistance.current = focusDist
         currentDistance.current = focusDist
 
-        if (wasFocused) {
+        if (!shouldShowHud) {
+            setFocusedMoon(null)
+        } else if (wasFocused) {
             setFocusedMoon(null)
             window.requestAnimationFrame(() => setFocusedMoon(name))
         } else {
@@ -3459,6 +4112,32 @@ export default function SolarSystemRenderer(externalProps) {
                 nav: PLANET_NAV,
             })
         )
+    }
+
+    const toggleMusicPlayback = () => {
+        const nextPlaying = !musicPlaying
+        setMusicPlaying(nextPlaying)
+
+        if (nextPlaying) {
+            soundControllerRef.current?.startBackgroundMusic()
+        } else {
+            soundControllerRef.current?.pauseBackgroundMusic()
+        }
+    }
+
+    const changeMusicVolume = (value) => {
+        setMusicVolume(value)
+        soundControllerRef.current?.setMusicVolume(value)
+    }
+
+    const previousMusicTrack = () => {
+        setMusicPlaying(true)
+        soundControllerRef.current?.previousBackgroundTrack()
+    }
+
+    const nextMusicTrack = () => {
+        setMusicPlaying(true)
+        soundControllerRef.current?.nextBackgroundTrack()
     }
 
     const toggleFullscreen = () => {
@@ -3503,6 +4182,13 @@ export default function SolarSystemRenderer(externalProps) {
     const hideLabels =
         !!activeRuntimeSceneSettings.hideLabels &&
         !activeRuntimeSceneSettings.showLabelsOnHover
+    const interfaceVisible = cfg.showInterface !== false
+    const activeOverlayForDisplay =
+        interfaceVisible &&
+        (cfg.showHudOnFocus !== false || !!activeScene || !!activeFeatureHud)
+            ? ActiveOverlay
+            : null
+    const interiorOverlayForDisplay = interfaceVisible ? InteriorOverlay : null
 
     const activeButtonStyle = {
         opacity: 1,
@@ -3516,18 +4202,15 @@ export default function SolarSystemRenderer(externalProps) {
             ref={containerRef}
             style={containerMainStyle}
             onPointerDown={() => {
-                if (
-                    (cleanNavigationMode || freeFlightMode || activeScene) &&
-                    hoveredObjectName
-                ) {
+                if (musicMenuOpen) {
+                    setMusicMenuOpen(false)
+                }
+
+                if (hoveredObjectName && hoveredObjectName !== "Sun") {
                     focusOn(hoveredObjectName)
 
                     if (cleanNavigationMode) {
                         setCfg((prev) => ({ ...prev, hideUI: true }))
-                    }
-
-                    if (freeFlightMode) {
-                        setCfg((prev) => ({ ...prev, hideUI: false }))
                     }
                 }
             }}
@@ -3557,10 +4240,12 @@ export default function SolarSystemRenderer(externalProps) {
                         Navegue usando as teclas:
                     </span>
                     <div style={wasdGridStyle} aria-hidden="true">
-                        <span style={{ ...wasdKeyStyle, gridColumn: 2 }}>W</span>
-                        <span style={{ ...wasdKeyStyle, gridColumn: 1 }}>A</span>
-                        <span style={{ ...wasdKeyStyle, gridColumn: 2 }}>S</span>
-                        <span style={{ ...wasdKeyStyle, gridColumn: 3 }}>D</span>
+                        <span style={{ ...wasdKeyStyle, gridColumn: 1, gridRow: 1 }}>Q</span>
+                        <span style={{ ...wasdKeyStyle, gridColumn: 2, gridRow: 1 }}>W</span>
+                        <span style={{ ...wasdKeyStyle, gridColumn: 3, gridRow: 1 }}>E</span>
+                        <span style={{ ...wasdKeyStyle, gridColumn: 1, gridRow: 2 }}>A</span>
+                        <span style={{ ...wasdKeyStyle, gridColumn: 2, gridRow: 2 }}>S</span>
+                        <span style={{ ...wasdKeyStyle, gridColumn: 3, gridRow: 2 }}>D</span>
                     </div>
                 </aside>
             )}
@@ -3573,6 +4258,7 @@ export default function SolarSystemRenderer(externalProps) {
                     isInsideJupiter={isInsideJupiter}
                     cleanNavigationMode={cleanNavigationMode}
                     freeFlightMode={freeFlightMode}
+                    freeFlightHoverEnabled={freeFlightHoverEnabled}
                     autoHideUI={activeScene ? false : autoHideUI}
                     cfg={cfg}
                     config={props}
@@ -3580,8 +4266,11 @@ export default function SolarSystemRenderer(externalProps) {
                     isJupiterContext={isJupiterContext}
                     getDisplayName={getDisplayName}
                     onFocus={focusOn}
-                    hudOpen={!!ActiveOverlay || !!InteriorOverlay}
+                    hudOpen={
+                        !!activeOverlayForDisplay || !!interiorOverlayForDisplay
+                    }
                     hoveredObjectName={hoveredObjectName}
+                    showMarkers={cfg.showMarkers}
                     labelsOnlyOnHover={
                         activeScene === "realScaleLine" ||
                         !!activeRuntimeSceneSettings.showLabelsOnHover
@@ -3589,7 +4278,8 @@ export default function SolarSystemRenderer(externalProps) {
                     sceneLabelsOnHover={isGalileanScene}
                 />
             )}
-            {(cleanNavigationMode || (freeFlightMode && cfg.hideUI)) && (
+            {((cleanNavigationMode || autoHideUI || cfg.showInterface === false) &&
+                !(freeFlightMode && cfg.hideUI)) && (
                 <div
                     style={{
                         position: "absolute",
@@ -3633,6 +4323,9 @@ export default function SolarSystemRenderer(externalProps) {
                     isFullscreen={isFullscreen}
                     menuForceHidden={menuForceHidden}
                     menuHoverZone={menuHoverZone}
+                    musicMenuOpen={musicMenuOpen}
+                    musicPlaying={musicPlaying}
+                    musicVolume={musicVolume}
                     scenes={props.scenes}
                     simMenuOpen={simMenuOpen}
                     onBack={() => navigate(-1)}
@@ -3643,23 +4336,27 @@ export default function SolarSystemRenderer(externalProps) {
                         startScene(sceneId)
                         setSimMenuOpen(false)
                     }}
-                    onSettingsToggle={(event) => {
-                        const buttonRect =
-                            event.currentTarget.getBoundingClientRect()
-                        const containerRect =
-                            containerRef.current?.getBoundingClientRect()
-
-                        if (containerRect) {
-                            setSettingsAnchorX(
-                                buttonRect.left +
-                                buttonRect.width / 2 -
-                                containerRect.left
-                            )
-                        }
-
+                    onSettingsToggle={() => {
                         setShowSettings(!showSettings)
+                        setMusicMenuOpen(false)
                     }}
+                    onMusicMenuOpen={() => {
+                        setMusicMenuOpen(true)
+                        setShowSettings(false)
+                    }}
+                    onMusicMenuClose={() => {
+                        setMusicMenuOpen(false)
+                    }}
+                    onMusicMenuToggle={() => {
+                        setMusicMenuOpen(true)
+                        setShowSettings(false)
+                    }}
+                    onMusicNext={nextMusicTrack}
+                    onMusicPrevious={previousMusicTrack}
+                    onMusicToggle={toggleMusicPlayback}
+                    onMusicVolumeChange={changeMusicVolume}
                     onSimMenuToggle={() => {
+                        setMusicMenuOpen(false)
                         if (activeScene) {
                             stopScene()
                             setSimMenuOpen(false)
@@ -3683,16 +4380,19 @@ export default function SolarSystemRenderer(externalProps) {
             )}
             {showSettings && (
                 <SettingsPanel
-                    key={settingsAnchorX ?? "center"}
-                    anchorX={settingsAnchorX}
                     cfg={cfg}
                     setCfg={setCfg}
+                    onClose={() => setShowSettings(false)}
+                    onReset={() => {
+                        saveUserSettings(defaultUserConfig)
+                        window.location.reload()
+                    }}
                 />
             )}
 
             <OverlayHost
-                activeOverlay={ActiveOverlay}
-                interiorOverlay={InteriorOverlay}
+                activeOverlay={activeOverlayForDisplay}
+                interiorOverlay={interiorOverlayForDisplay}
                 mousePos={mousePos}
                 hudIntensity={props.hudIntensity}
             />

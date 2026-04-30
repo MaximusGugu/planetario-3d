@@ -41,19 +41,16 @@ export default function App() {
     document.documentElement.requestFullscreen?.().catch(() => {})
   }
 
-  if (!cacheConsent) {
-    return (
-      <EntryConsent
-        onAccept={enterWithCache}
-        onSkip={enterWithoutCache}
-        onRequestFullscreen={requestFullscreen}
-      />
-    )
-  }
-
   return (
-    <div style={{ width: "100%", height: "100%", background: "#000" }}>
+    <div style={{ width: "100%", height: "100%", background: "#000", position: "relative" }}>
       <SolarSystemRenderer />
+      {!cacheConsent && (
+        <EntryConsent
+          onAccept={enterWithCache}
+          onSkip={enterWithoutCache}
+          onRequestFullscreen={requestFullscreen}
+        />
+      )}
     </div>
   )
 }

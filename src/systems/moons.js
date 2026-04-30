@@ -6,6 +6,8 @@ export const updateMoonSystems = ({
     selectedName,
     orbitSpeed,
     rotateSpeed,
+    satelliteSpeed = 1,
+    satelliteDistanceMultiplier = 1,
     jupiterMoonOrbitSpeedMultiplier = 1,
     jupiterMoonRotateSpeedMultiplier = 1,
 }) => {
@@ -16,13 +18,20 @@ export const updateMoonSystems = ({
         )
 
         if (isEarthMoon) {
+            const distanceMultiplier = moon.distanceMultiplier ?? 1
             if (selectedName !== "Moon") {
-                moon.phase = (moon.phase ?? 0) + 0.01 * (moon.speed ?? 1)
+                moon.phase =
+                    (moon.phase ?? 0) +
+                    0.01 *
+                        (moon.speed ?? 1) *
+                        satelliteSpeed
                 moon.pivot.rotation.y += moon.precessionSpeed ?? 0.00004
             }
 
             const phase = moon.phase ?? 0
-            const distance = moon.distance ?? moon.mesh.position.length()
+            const distance =
+                (moon.distance ?? moon.mesh.position.length()) *
+                distanceMultiplier
             const eccentricity = moon.eccentricity ?? 0.055
             const orbitalRadius =
                 (distance * (1 - eccentricity * eccentricity)) /
@@ -47,7 +56,7 @@ export const updateMoonSystems = ({
                 moon.mesh.quaternion.copy(targetQuat)
             }
 
-            moon.mesh.rotateY((rotateSpeed ?? 0.5) * 0.003)
+            moon.mesh.rotateY((rotateSpeed ?? 0.5) * 0.003 * satelliteSpeed)
 
             return
         }
@@ -57,12 +66,14 @@ export const updateMoonSystems = ({
                 (orbitSpeed ?? 0.3) *
                 0.005 *
                 (moon.speed ?? 1) *
+                satelliteSpeed *
                 (isJupiterMoon ? jupiterMoonOrbitSpeedMultiplier : 1)
         }
 
         moon.mesh.rotation.y +=
             (rotateSpeed ?? 0.5) *
             0.01 *
+            satelliteSpeed *
             (isJupiterMoon ? jupiterMoonRotateSpeedMultiplier : 1)
     })
 }
