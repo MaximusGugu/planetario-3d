@@ -292,6 +292,7 @@ export const createSunLighting = ({
     focusLight.shadow.camera.top = 20
     focusLight.shadow.camera.bottom = -20
     focusLight.layers.set(FOCUSED_LAYER)
+    focusLight.layers.enable(0)
     scene.add(focusLight)
 
     const asteroidSunLight = new THREE.DirectionalLight(
