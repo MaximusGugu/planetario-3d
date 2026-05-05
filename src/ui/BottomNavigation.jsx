@@ -258,7 +258,12 @@ export default function BottomNavigation({
                 </div>
 
                 {musicMenuOpen && (
-                    <div style={musicMenuStyle} onPointerDown={(event) => event.stopPropagation()}>
+                    <div
+                        style={musicMenuStyle}
+                        onPointerEnter={onMusicMenuOpen}
+                        onPointerLeave={onMusicMenuClose}
+                        onPointerDown={(event) => event.stopPropagation()}
+                    >
                         <button
                             type="button"
                             className="ui-icon-button"

@@ -182,12 +182,8 @@ export const createSunLighting = ({
     const streakTexture = createStreakTexture()
     const flareBrightness = config.sunFlareBrightness ?? 0.75
 
-    const sunFlareLight = new THREE.PointLight(
-        0xffffff,
-        config.sunNormalFlareIntensity ?? 0.35,
-        0,
-        0
-    )
+    const sunFlareLight = new THREE.Object3D()
+    sunFlareLight.intensity = 0
     sunFlareLight.position.copy(sunMesh.position)
     sunFlareLight.renderOrder = 1000
     const normalLensflare = createSunLensflare({
@@ -203,12 +199,8 @@ export const createSunLighting = ({
     sunFlareLight.add(normalLensflare)
     solarSystemGroup.add(sunFlareLight)
 
-    const sunEclipseFlareLight = new THREE.PointLight(
-        0xffcc88,
-        config.sunEclipseFlareIntensity ?? 1.8,
-        0,
-        0
-    )
+    const sunEclipseFlareLight = new THREE.Object3D()
+    sunEclipseFlareLight.intensity = 0
     sunEclipseFlareLight.position.copy(sunMesh.position)
     sunEclipseFlareLight.renderOrder = 1002
     const eclipseLensflare = createSunLensflare({

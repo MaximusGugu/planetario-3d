@@ -409,8 +409,18 @@ body {
 .music-volume-popover {
   opacity: 0;
   pointer-events: none;
+  position: relative;
   translate: 0 8px;
   transition: opacity 0.16s ease, translate 0.16s ease;
+}
+
+.music-volume-popover::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  right: -10px;
+  bottom: -22px;
+  height: 30px;
 }
 
 .music-volume-button:hover + .music-volume-popover,

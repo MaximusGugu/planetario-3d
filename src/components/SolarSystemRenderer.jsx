@@ -372,6 +372,7 @@ export default function SolarSystemRenderer(externalProps) {
     const [musicMenuOpen, setMusicMenuOpen] = useState(false)
     const [musicPlaying, setMusicPlaying] = useState(true)
     const [musicVolume, setMusicVolume] = useState(0.4)
+    const musicMenuCloseTimerRef = useRef(null)
 
     const [activeScene, setActiveScene] = useState(null)
     const [simMenuOpen, setSimMenuOpen] = useState(false)
@@ -3769,14 +3770,12 @@ export default function SolarSystemRenderer(externalProps) {
             }
 
             sunFlareLight.visible = visualNormalFlareBlend > 0.02
-            sunFlareLight.intensity =
-                (p.sunNormalFlareIntensity ?? 0.35) * visualNormalFlareBlend
+            sunFlareLight.intensity = 0
             sunFlareLight.userData.lensflare?.userData.setBlend?.(
                 visualNormalFlareBlend
             )
             sunEclipseFlareLight.visible = visualEclipseFlareBlend > 0.02
-            sunEclipseFlareLight.intensity =
-                (p.sunEclipseFlareIntensity ?? 1.8) * visualEclipseFlareBlend
+            sunEclipseFlareLight.intensity = 0
             sunEclipseFlareLight.userData.lensflare?.userData.setBlend?.(
                 visualEclipseFlareBlend
             )
@@ -4047,6 +4046,33 @@ export default function SolarSystemRenderer(externalProps) {
         return selectedMoonRef.current === "Jupiter"
     }
 
+    const closeMusicMenu = () => {
+        if (musicMenuCloseTimerRef.current) {
+            window.clearTimeout(musicMenuCloseTimerRef.current)
+            musicMenuCloseTimerRef.current = null
+        }
+        setMusicMenuOpen(false)
+    }
+
+    const openMusicMenu = () => {
+        if (musicMenuCloseTimerRef.current) {
+            window.clearTimeout(musicMenuCloseTimerRef.current)
+            musicMenuCloseTimerRef.current = null
+        }
+        setMusicMenuOpen(true)
+        setShowSettings(false)
+    }
+
+    const scheduleMusicMenuClose = () => {
+        if (musicMenuCloseTimerRef.current) {
+            window.clearTimeout(musicMenuCloseTimerRef.current)
+        }
+        musicMenuCloseTimerRef.current = window.setTimeout(() => {
+            setMusicMenuOpen(false)
+            musicMenuCloseTimerRef.current = null
+        }, 520)
+    }
+
     const activeRuntimeSceneSettings = runtimeSceneSettings || {}
     const runtimeBackground = activeRuntimeSceneSettings.background || {}
     const isGalileanScene =
@@ -4081,7 +4107,7 @@ export default function SolarSystemRenderer(externalProps) {
             style={containerMainStyle}
             onPointerDown={() => {
                 if (musicMenuOpen) {
-                    setMusicMenuOpen(false)
+                    closeMusicMenu()
                 }
 
                 if (hoveredObjectName && hoveredObjectName !== "Sun") {
@@ -4216,25 +4242,17 @@ export default function SolarSystemRenderer(externalProps) {
                     }}
                     onSettingsToggle={() => {
                         setShowSettings(!showSettings)
-                        setMusicMenuOpen(false)
+                        closeMusicMenu()
                     }}
-                    onMusicMenuOpen={() => {
-                        setMusicMenuOpen(true)
-                        setShowSettings(false)
-                    }}
-                    onMusicMenuClose={() => {
-                        setMusicMenuOpen(false)
-                    }}
-                    onMusicMenuToggle={() => {
-                        setMusicMenuOpen(true)
-                        setShowSettings(false)
-                    }}
+                    onMusicMenuOpen={openMusicMenu}
+                    onMusicMenuClose={scheduleMusicMenuClose}
+                    onMusicMenuToggle={openMusicMenu}
                     onMusicNext={nextMusicTrack}
                     onMusicPrevious={previousMusicTrack}
                     onMusicToggle={toggleMusicPlayback}
                     onMusicVolumeChange={changeMusicVolume}
                     onSimMenuToggle={() => {
-                        setMusicMenuOpen(false)
+                        closeMusicMenu()
                         if (activeScene) {
                             stopScene()
                             setSimMenuOpen(false)
